@@ -12,11 +12,15 @@ Desktop.ini
 *.VC.db
 *.VC.VC.opendb
 
-# Build output directories
-Debug/
-Release/
-x64/
-x86/
+# Build output directories (anchored to repo/project dirs)
+/x64/
+/x86/
+/Debug/
+/Release/
+/OpenGL-basico/x64/
+/OpenGL-basico/Debug/
+/OpenGL-basico/Release/
+/OpenGL-basico/CUDAbuild/
 [Bb]uild/
 [bB]in/
 obj/
@@ -49,7 +53,5 @@ install_manifest.txt
 # VS Code
 .vscode/
 
-# Third‑party vendor build artifacts
-libraries/**/bin/
-libraries/**/lib/
-libraries/**/build/
+# Third‑party vendor build artifacts (do NOT ignore prebuilt vendor libs)
+# If you have local vendor build dirs you want ignored, add them explicitly.
