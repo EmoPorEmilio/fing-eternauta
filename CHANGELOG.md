@@ -11,6 +11,41 @@ Versioning.
 
 - (placeholder) Screenshot mode, presets, performance toggles.
 
+## [1.4.0] - 2025-08-24
+
+### Added
+
+- Aesthetic controls: Rim Strength/Power and Exposure on Rendering tab.
+- Expanded Rendering controls: glow, sparkle, threshold, noise, tint, fog.
+- Impostor world-size clamps (min/max) and global size multiplier.
+
+### Fixed
+
+- Visibility polish at launch; ensure particles show reliably.
+
+## [1.3.0] - 2025-08-23
+
+### Added
+
+- Culling & performance options: distance, screen-space culling, LOD thresholds,
+  per-frame impostor draw cap, uniform batching toggle.
+
+## [1.2.0] - 2025-08-22
+
+### Added
+
+- Debug HUD with counters (Active, BVH, Drawn, Off, Tiny, Cap) and footer
+  overlay.
+- “GUST ACTIVE” badge during blizzard gusts.
+
+## [1.1.0] - 2025-08-21
+
+### Added
+
+- Static environment (floor/table); particles land, linger, respawn.
+- Billboarded sphere impostors with disc masking for snow.
+- Transparent impostor pass with correct depth/alpha handling.
+
 ## [1.0.0] - 2025-08-23
 
 ### Added

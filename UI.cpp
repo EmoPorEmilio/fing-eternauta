@@ -63,6 +63,19 @@ void UI_DrawCountersMini(int windowWidth, int windowHeight, int active, int bvhV
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     setupOrtho(windowWidth, windowHeight);
+
+    // Cadence label (top-left)
+    {
+        float wL = 120.0f, hL = 28.0f, xL = 12.0f, yL = 12.0f;
+        drawFilledRect(xL, yL, wL, hL, 0.06f, 0.08f, 0.12f, 0.85f);
+        extern AppSettings gSettings; // declared in main.cpp
+        const char *selText = (gSettings.cadenceSelection == CadenceSelection::One)     ? "Cycle: 1"
+                              : (gSettings.cadenceSelection == CadenceSelection::Two)   ? "Cycle: 2"
+                              : (gSettings.cadenceSelection == CadenceSelection::Three) ? "Cycle: 3"
+                                                                                        : "Cycle: Auto";
+        drawText(xL + 10.0f, yL + 18.0f, selText, 0.9f, 0.95f, 1.0f, 1.0f);
+    }
+
     float w = 260.0f, h = 98.0f, x = windowWidth - w - 16.0f, y = 12.0f;
     drawFilledRect(x, y, w, h, 0.06f, 0.08f, 0.12f, 0.85f);
     char line[64];
@@ -242,7 +255,9 @@ static void applyAdjustmentByIndex(int index, int dir, AppSettings &settings, bo
     }
     if (index == 1)
     {
-        settings.shaderType = (settings.shaderType == ShaderType::Phong ? ShaderType::Basic : (settings.shaderType == ShaderType::Basic ? ShaderType::SnowGlow : ShaderType::Phong));
+        int st = (int)settings.shaderType;
+        st = (st + (dir > 0 ? 1 : -1) + 5) % 5; // cycle Phong, Basic, SnowGlow, FrostCrystal, Mix
+        settings.shaderType = (ShaderType)st;
         needsShaderReload = true;
         return;
     }
@@ -580,7 +595,7 @@ bool UI_HandleEvent(const SDL_Event &e, UIState &state, AppSettings &settings, i
         // Rendering and others handled below
         const std::vector<int> &indices = tabs[tab].indices;
         int baseTotal = (int)indices.size();
-        int extra = (tab == 0 && settings.shaderType == ShaderType::SnowGlow) ? 9 : 0;
+        int extra = (tab == 0 && settings.shaderType == ShaderType::SnowGlow) ? 10 : 0;
         int materialExtra = (tab == 0 && settings.shaderType == ShaderType::SnowGlow) ? 9 : 0;
         int total = baseTotal + extra + materialExtra;
         int visibleRows = (int)((panelH - 76.0f - 34.0f - 10.0f) / (itemH + 6.0f));
@@ -603,7 +618,7 @@ bool UI_HandleEvent(const SDL_Event &e, UIState &state, AppSettings &settings, i
                     }
                     else if (local < baseTotal + extra)
                     {
-                        // SnowGlow extra controls (glow/sparkle/noise/tint/fog)
+                        // SnowGlow extra controls (glow/sparkle/noise/tint/fog + rim/power/exposure + mix)
                         int eidx = local - baseTotal;
                         if (eidx == 0)
                             settings.snowGlowIntensity = std::max(0.0f, settings.snowGlowIntensity + dir * 0.1f);
@@ -617,6 +632,21 @@ bool UI_HandleEvent(const SDL_Event &e, UIState &state, AppSettings &settings, i
                             settings.snowTintStrength = std::max(0.0f, std::min(1.0f, settings.snowTintStrength + dir * 0.02f));
                         if (eidx == 5)
                             settings.snowFogStrength = std::max(0.0f, std::min(1.0f, settings.snowFogStrength + dir * 0.02f));
+                        if (eidx == 6)
+                            settings.snowRimStrength = std::max(0.0f, std::min(2.0f, settings.snowRimStrength + dir * 0.05f));
+                        if (eidx == 7)
+                            settings.snowRimPower = std::max(0.5f, std::min(6.0f, settings.snowRimPower + dir * 0.1f));
+                        if (eidx == 8)
+                            settings.snowExposure = std::max(0.2f, std::min(3.0f, settings.snowExposure + dir * 0.05f));
+                        if (eidx == 9)
+                            settings.snowMixAmount = std::max(0.0f, std::min(1.0f, settings.snowMixAmount + dir * 0.05f));
+                        // New depth/fog aesthetics
+                        if (eidx == 10)
+                            settings.depthDesatStrength = std::max(0.0f, std::min(1.0f, settings.depthDesatStrength + dir * 0.05f));
+                        if (eidx == 11)
+                            settings.depthBlueStrength = std::max(0.0f, std::min(1.0f, settings.depthBlueStrength + dir * 0.05f));
+                        if (eidx == 12)
+                            settings.fogHeightStrength = std::max(0.0f, std::min(1.0f, settings.fogHeightStrength + dir * 0.05f));
                     }
                     else
                     {
@@ -647,8 +677,8 @@ bool UI_HandleEvent(const SDL_Event &e, UIState &state, AppSettings &settings, i
         }
         if (tabs[tab].name == std::string("Debug"))
         {
-            // Debug controls: overlay, speed, size, distance culling, screen culling, uniform batching
-            int total = 6;
+            // Debug controls: overlay, speed, size, distance culling, screen culling, uniform batching, min/max size, surfaces scale/toggles
+            int total = 13;
             int visibleRows = (int)((panelH - 76.0f - 34.0f - 10.0f) / (itemH + 6.0f));
             int startRow = state.scrollIndex;
             int endRow = std::min(startRow + visibleRows, total);
@@ -694,6 +724,44 @@ bool UI_HandleEvent(const SDL_Event &e, UIState &state, AppSettings &settings, i
                             settings.enableUniformBatching = !settings.enableUniformBatching;
                             return true;
                         }
+                        if (local == 6)
+                        {
+                            int dir = (mx < rightX + 60.0f) ? -1 : +1;
+                            settings.impostorMinWorldSize = std::max(0.01f, std::min(settings.impostorMaxWorldSize, settings.impostorMinWorldSize + dir * 0.05f));
+                            return true;
+                        }
+                        if (local == 7)
+                        {
+                            int dir = (mx < rightX + 60.0f) ? -1 : +1;
+                            settings.impostorMaxWorldSize = std::max(settings.impostorMinWorldSize, std::min(10.0f, settings.impostorMaxWorldSize + dir * 0.1f));
+                            return true;
+                        }
+                        if (local == 8)
+                        {
+                            int dir = (mx < rightX + 60.0f) ? -1 : +1;
+                            settings.surfaceScale = std::max(0.25f, std::min(4.0f, settings.surfaceScale + dir * 0.1f));
+                            return true;
+                        }
+                        if (local == 9)
+                        {
+                            settings.sidePlatformEnabled = !settings.sidePlatformEnabled;
+                            return true;
+                        }
+                        if (local == 10)
+                        {
+                            settings.shelfEnabled = !settings.shelfEnabled;
+                            return true;
+                        }
+                        if (local == 11)
+                        {
+                            settings.crateEnabled = !settings.crateEnabled;
+                            return true;
+                        }
+                        if (local == 12)
+                        {
+                            settings.columnEnabled = !settings.columnEnabled;
+                            return true;
+                        }
                     }
                     return true;
                 }
@@ -706,7 +774,7 @@ bool UI_HandleEvent(const SDL_Event &e, UIState &state, AppSettings &settings, i
     // Clamp selection/scroll
     auto tabs = getTabs();
     int tab = std::max(0, std::min(state.page, (int)tabs.size() - 1));
-    int baseTotal = (tabs[tab].name == std::string("Cadence")) ? 16 : (tabs[tab].name == std::string("Debug") ? 6 : (int)tabs[tab].indices.size());
+    int baseTotal = (tabs[tab].name == std::string("Cadence")) ? 16 : (tabs[tab].name == std::string("Debug") ? 8 : (int)tabs[tab].indices.size());
     if (tab == 0 && tabs[tab].name == std::string("Rendering"))
     {
         if (baseTotal == (int)tabs[tab].indices.size())
@@ -719,7 +787,7 @@ bool UI_HandleEvent(const SDL_Event &e, UIState &state, AppSettings &settings, i
     }
     int total = baseTotal;
     if (tab == 0 && settings.shaderType == ShaderType::SnowGlow)
-        total = (int)tabs[tab].indices.size() + 6;
+        total = (int)tabs[tab].indices.size() + 10;
     if (total <= 0)
     {
         state.selectedIndex = 0;
@@ -937,10 +1005,13 @@ void UI_Draw(const UIState &state, const AppSettings &settings, int windowWidth,
 
             if (tabs[tab].name == std::string("Debug"))
             {
-                const char *labels[6] = {
+                const char *labelsAll[13] = {
                     "Overlay", "Speed x", "Size x",
-                    "Dist Cull", "Screen Cull", "Batch Uniforms"};
-                drawText(x + 20.0f, iy + 18.0f, labels[local], 0.9f, 0.95f, 1.0f, 1.0f);
+                    "Dist Cull", "Screen Cull", "Batch Uniforms",
+                    "Min Size", "Max Size",
+                    "Surface Scale",
+                    "Side Platform", "Shelf", "Crate", "Column"};
+                drawText(x + 20.0f, iy + 18.0f, labelsAll[local], 0.9f, 0.95f, 1.0f, 1.0f);
                 drawFilledRect(rightX, iy + 6.0f, 120.0f, itemH - 12.0f, 0.18f, 0.22f, 0.32f, 0.85f);
 
                 if (local == 0)
@@ -975,6 +1046,44 @@ void UI_Draw(const UIState &state, const AppSettings &settings, int windowWidth,
                     drawFilledRect(rightX, iy + 6.0f, 80.0f, itemH - 12.0f, settings.enableUniformBatching ? 0.15f : 0.35f, settings.enableUniformBatching ? 0.5f : 0.15f, settings.enableUniformBatching ? 0.2f : 0.15f, 0.9f);
                     drawText(rightX + 18.0f, iy + 18.0f, settings.enableUniformBatching ? "ON" : "OFF", settings.enableUniformBatching ? 0.8f : 1.0f, settings.enableUniformBatching ? 1.0f : 0.8f, 0.85f, 1.0f);
                 }
+                else if (local == 6)
+                {
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "%.2f", settings.impostorMinWorldSize);
+                    drawText(rightX + 10.0f, iy + 18.0f, buf, 0.9f, 0.95f, 1.0f, 1.0f);
+                }
+                else if (local == 7)
+                {
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "%.2f", settings.impostorMaxWorldSize);
+                    drawText(rightX + 10.0f, iy + 18.0f, buf, 0.9f, 0.95f, 1.0f, 1.0f);
+                }
+                else if (local == 8)
+                {
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "%.2f", settings.surfaceScale);
+                    drawText(rightX + 10.0f, iy + 18.0f, buf, 0.9f, 0.95f, 1.0f, 1.0f);
+                }
+                else if (local == 9)
+                {
+                    drawFilledRect(rightX, iy + 6.0f, 80.0f, itemH - 12.0f, settings.sidePlatformEnabled ? 0.15f : 0.35f, settings.sidePlatformEnabled ? 0.5f : 0.15f, settings.sidePlatformEnabled ? 0.2f : 0.15f, 0.9f);
+                    drawText(rightX + 18.0f, iy + 18.0f, settings.sidePlatformEnabled ? "ON" : "OFF", settings.sidePlatformEnabled ? 0.8f : 1.0f, settings.sidePlatformEnabled ? 1.0f : 0.8f, 0.85f, 1.0f);
+                }
+                else if (local == 10)
+                {
+                    drawFilledRect(rightX, iy + 6.0f, 80.0f, itemH - 12.0f, settings.shelfEnabled ? 0.15f : 0.35f, settings.shelfEnabled ? 0.5f : 0.15f, settings.shelfEnabled ? 0.2f : 0.15f, 0.9f);
+                    drawText(rightX + 18.0f, iy + 18.0f, settings.shelfEnabled ? "ON" : "OFF", settings.shelfEnabled ? 0.8f : 1.0f, settings.shelfEnabled ? 1.0f : 0.8f, 0.85f, 1.0f);
+                }
+                else if (local == 11)
+                {
+                    drawFilledRect(rightX, iy + 6.0f, 80.0f, itemH - 12.0f, settings.crateEnabled ? 0.15f : 0.35f, settings.crateEnabled ? 0.5f : 0.15f, settings.crateEnabled ? 0.2f : 0.15f, 0.9f);
+                    drawText(rightX + 18.0f, iy + 18.0f, settings.crateEnabled ? "ON" : "OFF", settings.crateEnabled ? 0.8f : 1.0f, settings.crateEnabled ? 1.0f : 0.8f, 0.85f, 1.0f);
+                }
+                else if (local == 12)
+                {
+                    drawFilledRect(rightX, iy + 6.0f, 80.0f, itemH - 12.0f, settings.columnEnabled ? 0.15f : 0.35f, settings.columnEnabled ? 0.5f : 0.15f, settings.columnEnabled ? 0.2f : 0.15f, 0.9f);
+                    drawText(rightX + 18.0f, iy + 18.0f, settings.columnEnabled ? "ON" : "OFF", settings.columnEnabled ? 0.8f : 1.0f, settings.columnEnabled ? 1.0f : 0.8f, 0.85f, 1.0f);
+                }
                 continue;
             }
 
@@ -999,8 +1108,16 @@ void UI_Draw(const UIState &state, const AppSettings &settings, int windowWidth,
                         drawText(rightX + 10.0f, iy + 18.0f, std::to_string(settings.targetPyramidCount), 0.9f, 0.95f, 1.0f, 1.0f);
                         break;
                     case 1:
-                        drawText(rightX + 10.0f, iy + 18.0f, settings.shaderType == ShaderType::Phong ? "Phong" : (settings.shaderType == ShaderType::SnowGlow ? "SnowGlow" : "Basic"), 0.9f, 0.95f, 1.0f, 1.0f);
+                    {
+                        const char *sname =
+                            settings.shaderType == ShaderType::Phong ? "Phong" : settings.shaderType == ShaderType::Basic      ? "Basic"
+                                                                             : settings.shaderType == ShaderType::SnowGlow     ? "SnowGlow"
+                                                                             : settings.shaderType == ShaderType::FrostCrystal ? "FrostCrystal"
+                                                                                                                               : "Mix";
+                        drawText(rightX + 10.0f, iy + 18.0f, sname, 0.9f, 0.95f, 1.0f, 1.0f);
                         break;
+                    }
+                    break;
                     case 2:
                         drawText(rightX + 10.0f, iy + 18.0f, std::to_string((int)settings.fovDegrees) + " deg", 0.9f, 0.95f, 1.0f, 1.0f);
                         break;
@@ -1065,7 +1182,7 @@ void UI_Draw(const UIState &state, const AppSettings &settings, int windowWidth,
             }
             else if (local < baseTotal + extra)
             {
-                // SnowGlow extra controls (glow/sparkle/noise/tint/fog + rim/exposure)
+                // SnowGlow extra controls (glow/sparkle/noise/tint/fog + rim/exposure + mix)
                 int eidx = local - baseTotal;
                 const char *label =
                     (eidx == 0) ? "Glow Intensity" : (eidx == 1) ? "Sparkle Intensity"
@@ -1075,7 +1192,8 @@ void UI_Draw(const UIState &state, const AppSettings &settings, int windowWidth,
                                                  : (eidx == 5)   ? "Fog Strength"
                                                  : (eidx == 6)   ? "Rim Strength"
                                                  : (eidx == 7)   ? "Rim Power"
-                                                                 : "Exposure";
+                                                 : (eidx == 8)   ? "Exposure"
+                                                                 : "Mix Amount";
                 drawText(x + 20.0f, iy + 18.0f, label, 0.9f, 0.95f, 1.0f, 1.0f);
                 drawFilledRect(rightX, iy + 6.0f, 120.0f, itemH - 12.0f, 0.18f, 0.22f, 0.32f, 0.85f);
                 char buf[32];
@@ -1086,7 +1204,8 @@ void UI_Draw(const UIState &state, const AppSettings &settings, int windowWidth,
                                                                    : (eidx == 5)   ? settings.snowFogStrength
                                                                    : (eidx == 6)   ? settings.snowRimStrength
                                                                    : (eidx == 7)   ? settings.snowRimPower
-                                                                                   : settings.snowExposure;
+                                                                   : (eidx == 8)   ? settings.snowExposure
+                                                                                   : settings.snowMixAmount;
                 snprintf(buf, sizeof(buf), "%.2f", val);
                 drawText(rightX + 10.0f, iy + 18.0f, buf, 0.9f, 0.95f, 1.0f, 1.0f);
             }

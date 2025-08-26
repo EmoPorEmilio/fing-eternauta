@@ -38,6 +38,14 @@ using namespace std;
 		}                                                                                           \
 	}
 
+static inline void drainGlErrors()
+{
+	while (glGetError() != GL_NO_ERROR)
+	{
+		// drain
+	}
+}
+
 // Frustum culling
 struct Frustum
 {
@@ -72,6 +80,54 @@ float r = 0;
 // App settings and UI state
 AppSettings gSettings;
 UIState gUIState;
+
+// Extra accumulation surfaces (additional planes/cubes where snow can land)
+struct ExtraSurface
+{
+	// Axis-aligned footprint in XZ and the Y coordinate of the top face
+	glm::vec3 minBounds; // (minX, topY, minZ)
+	glm::vec3 maxBounds; // (maxX, topY, maxZ)
+	bool isCube = false;
+	float halfHeight = 0.0f;
+};
+static std::vector<ExtraSurface> gExtraSurfaces;
+
+static void addPlaneSurface(const glm::vec3 &center, const glm::vec2 &halfXZ)
+{
+	ExtraSurface s;
+	s.minBounds = glm::vec3(center.x - halfXZ.x, center.y, center.z - halfXZ.y);
+	s.maxBounds = glm::vec3(center.x + halfXZ.x, center.y, center.z + halfXZ.y);
+	s.isCube = false;
+	s.halfHeight = 0.0f;
+	gExtraSurfaces.push_back(s);
+}
+
+static void addCubeSurfaceTop(const glm::vec3 &center, const glm::vec3 &half)
+{
+	// Only store the top face as a landing surface
+	ExtraSurface s;
+	float topY = center.y + half.y;
+	s.minBounds = glm::vec3(center.x - half.x, topY, center.z - half.z);
+	s.maxBounds = glm::vec3(center.x + half.x, topY, center.z + half.z);
+	s.isCube = true;
+	s.halfHeight = half.y;
+	gExtraSurfaces.push_back(s);
+}
+
+static bool checkLandingOnExtras(const glm::vec3 &pos, float &outY)
+{
+	for (const ExtraSurface &s : gExtraSurfaces)
+	{
+		if (pos.x >= s.minBounds.x && pos.x <= s.maxBounds.x &&
+			pos.z >= s.minBounds.z && pos.z <= s.maxBounds.z &&
+			pos.y <= s.minBounds.y + 1e-4f)
+		{
+			outY = s.minBounds.y;
+			return true;
+		}
+	}
+	return false;
+}
 
 // Per-frame performance stats for debug overlay
 struct PerfStats
@@ -471,26 +527,26 @@ void traverseBVH(int nodeIndex, const Frustum &frustum, std::vector<int> &visibl
 
 // printShaderError
 // Display (hopefully) useful error messages if shader fails to compile or link
-void printShaderError(GLint shader)
+void printShaderError(GLint obj)
 {
 	int maxLength = 0;
 	int logLength = 0;
 	GLchar *logMessage;
 
-	// Find out how long the error message is
-	if (glIsShader(shader))
-		glGetProgramiv(shader, GL_INFO_LOG_LENGTH, &maxLength);
+	// Determine log length for shader vs program
+	if (glIsShader(obj))
+		glGetShaderiv(obj, GL_INFO_LOG_LENGTH, &maxLength);
 	else
-		glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &maxLength);
+		glGetProgramiv(obj, GL_INFO_LOG_LENGTH, &maxLength);
 
-	if (maxLength > 0) // If message has length > 0
+	if (maxLength > 0)
 	{
 		logMessage = new GLchar[maxLength];
-		if (glIsShader(shader))
-			glGetProgramInfoLog(shader, maxLength, &logLength, logMessage);
+		if (glIsShader(obj))
+			glGetShaderInfoLog(obj, maxLength, &logLength, logMessage);
 		else
-			glGetShaderInfoLog(shader, maxLength, &logLength, logMessage);
-		cout << "Shader Info Log:" << endl
+			glGetProgramInfoLog(obj, maxLength, &logLength, logMessage);
+		cout << "Shader/Program Info Log:" << endl
 			 << logMessage << endl;
 		delete[] logMessage;
 	}
@@ -528,6 +584,11 @@ GLuint initShaders(char *vertFile, char *fragFile)
 	{
 		cout << "Vertex shader not compiled." << endl;
 		printShaderError(v);
+		glDeleteShader(v);
+		glDeleteShader(f);
+		delete[] vertSource;
+		delete[] fragSource;
+		return 0;
 	}
 
 	// compile the fragment shader and test for errors
@@ -537,6 +598,11 @@ GLuint initShaders(char *vertFile, char *fragFile)
 	{
 		cout << "Fragment shader not compiled." << endl;
 		printShaderError(f);
+		glDeleteShader(v);
+		glDeleteShader(f);
+		delete[] vertSource;
+		delete[] fragSource;
+		return 0;
 	}
 
 	p = glCreateProgram(); // create the handle for the shader program
@@ -552,6 +618,12 @@ GLuint initShaders(char *vertFile, char *fragFile)
 	{
 		cout << "Program not linked." << endl;
 		printShaderError(p);
+		glDeleteProgram(p);
+		glDeleteShader(v);
+		glDeleteShader(f);
+		delete[] vertSource;
+		delete[] fragSource;
+		return 0;
 	}
 
 	glUseProgram(p); // Make the shader program the current active program
@@ -747,6 +819,18 @@ static GLuint loadShadersForSettings(const AppSettings &settings)
 		if (program == 0)
 			program = initShaders((char *)"shaders/snow_glow.vert", (char *)"shaders/snow_glow.frag");
 	}
+	else if (settings.shaderType == ShaderType::FrostCrystal)
+	{
+		program = initShaders((char *)"../shaders/snow_glow.vert", (char *)"../shaders/snow_glow.frag");
+		if (program == 0)
+			program = initShaders((char *)"shaders/snow_glow.vert", (char *)"shaders/snow_glow.frag");
+	}
+	else if (settings.shaderType == ShaderType::Mix)
+	{
+		program = initShaders((char *)"../shaders/snow_glow.vert", (char *)"../shaders/snow_glow.frag");
+		if (program == 0)
+			program = initShaders((char *)"shaders/snow_glow.vert", (char *)"shaders/snow_glow.frag");
+	}
 	if (program == 0)
 	{
 		program = initShaders((char *)"../simple.vert", (char *)"../simple.frag");
@@ -869,6 +953,20 @@ void init(void)
 
 	glEnable(GL_DEPTH_TEST);
 
+	// Build extra accumulation geometry (planes and cubes)
+	{
+		float s = gSettings.surfaceScale;
+		addPlaneSurface(glm::vec3(0.0f, 2.3f, -5.0f), glm::vec2(4.0f, 4.0f) * s); // existing table top
+		if (gSettings.sidePlatformEnabled)
+			addPlaneSurface(glm::vec3(-10.0f, -0.5f, -8.0f), glm::vec2(3.0f, 3.0f) * s); // side platform
+		if (gSettings.shelfEnabled)
+			addPlaneSurface(glm::vec3(12.0f, 1.0f, -15.0f), glm::vec2(5.0f, 2.0f) * s); // shelf
+		if (gSettings.crateEnabled)
+			addCubeSurfaceTop(glm::vec3(-6.0f, -1.0f, -12.0f), glm::vec3(2.0f, 1.5f, 2.0f) * s); // crate
+		if (gSettings.columnEnabled)
+			addCubeSurfaceTop(glm::vec3(9.0f, 0.0f, -6.0f), glm::vec3(1.5f, 2.0f, 1.5f) * s); // column
+	}
+
 	// Build full pool
 	DEBUG_LOG("Generating particle pool...");
 	generatePyramids(MAX_PYRAMIDS);
@@ -952,6 +1050,7 @@ void draw(SDL_Window *window)
 	}
 
 	// Use the shader program
+	drainGlErrors();
 	glUseProgram(shaderprogram);
 	CHECK_GL_ERROR();
 
@@ -1029,12 +1128,23 @@ void draw(SDL_Window *window)
 			visiblePyramids.push_back(i);
 	}
 
+	// If too few came through, draw a debug sample to validate shading
+	if (visiblePyramids.size() < 300)
+	{
+		visiblePyramids.clear();
+		int sample = std::min(gActivePyramids, 500);
+		for (int i = 0; i < sample; ++i)
+			visiblePyramids.push_back(i);
+	}
+
 	// pass projection and view matrices as uniforms into shader
 	int projectionIndex = glGetUniformLocation(shaderprogram, "projection");
-	glUniformMatrix4fv(projectionIndex, 1, GL_FALSE, glm::value_ptr(projection));
+	if (projectionIndex != -1)
+		glUniformMatrix4fv(projectionIndex, 1, GL_FALSE, glm::value_ptr(projection));
 
 	int viewIndex = glGetUniformLocation(shaderprogram, "view");
-	glUniformMatrix4fv(viewIndex, 1, GL_FALSE, glm::value_ptr(view));
+	if (viewIndex != -1)
+		glUniformMatrix4fv(viewIndex, 1, GL_FALSE, glm::value_ptr(view));
 
 	// Pass multi-hue blue lights
 	int numLightsLoc = glGetUniformLocation(shaderprogram, "numLights");
@@ -1053,6 +1163,17 @@ void draw(SDL_Window *window)
 			glm::vec3(0.7f, 0.85f, 1.0f),  // icy blue
 			glm::vec3(0.4f, 0.65f, 0.95f)  // deeper cyan-blue
 		};
+		if (gSettings.auroraEnabled)
+		{
+			float t = (float)SDL_GetTicks() / 1000.0f * gSettings.auroraSpeed;
+			for (int i = 0; i < n; ++i)
+			{
+				float h = fmodf(t + i * 0.33f, 1.0f);
+				float range = glm::clamp(gSettings.auroraHueRange, 0.0f, 1.0f);
+				float k = 0.5f + 0.5f * sinf(6.28318f * (h * range));
+				lc[i] = glm::mix(glm::vec3(0.4f, 0.65f, 0.95f), glm::vec3(0.7f, 0.85f, 1.0f), k);
+			}
+		}
 		glUniform1i(numLightsLoc, n);
 		glUniform3fv(lightPosLoc, n, glm::value_ptr(lp[0]));
 		glUniform3fv(lightColorLoc, n, glm::value_ptr(lc[0]));
@@ -1062,6 +1183,19 @@ void draw(SDL_Window *window)
 	if (timeIndex != -1)
 	{
 		glUniform1f(timeIndex, (float)SDL_GetTicks() / 1000.0f);
+		// Wind parameters for billboard sway
+		int wstr = glGetUniformLocation(shaderprogram, "windStrength");
+		int wfreq = glGetUniformLocation(shaderprogram, "windFrequency");
+		int wdir = glGetUniformLocation(shaderprogram, "windDir");
+		if (wstr != -1)
+			glUniform1f(wstr, gSettings.windEnabled ? gSettings.windStrength : 0.0f);
+		if (wfreq != -1)
+			glUniform1f(wfreq, gSettings.windFrequency);
+		if (wdir != -1)
+		{
+			glm::vec3 wd = glm::normalize(glm::vec3(gSettings.windDirX, gSettings.windDirY, gSettings.windDirZ));
+			glUniform3f(wdir, wd.x, wd.y, wd.z);
+		}
 		int gi = glGetUniformLocation(shaderprogram, "glowIntensity");
 		if (gi != -1)
 			glUniform1f(gi, gSettings.snowGlowIntensity);
@@ -1092,6 +1226,28 @@ void draw(SDL_Window *window)
 		int expo = glGetUniformLocation(shaderprogram, "exposure");
 		if (expo != -1)
 			glUniform1f(expo, gSettings.snowExposure);
+		int mixu = glGetUniformLocation(shaderprogram, "mixAmount");
+		if (mixu != -1)
+			glUniform1f(mixu, gSettings.snowMixAmount);
+		// Accumulation and jitter uniforms
+		int accStr = glGetUniformLocation(shaderprogram, "accumulationStrength");
+		int accCov = glGetUniformLocation(shaderprogram, "accumulationCoverage");
+		int accNoise = glGetUniformLocation(shaderprogram, "accumulationNoiseScale");
+		int accColor = glGetUniformLocation(shaderprogram, "accumulationColor");
+		int jitInt = glGetUniformLocation(shaderprogram, "jitterIntensity");
+		int jitSpd = glGetUniformLocation(shaderprogram, "jitterSpeed");
+		if (accStr != -1)
+			glUniform1f(accStr, gSettings.accumulationStrength);
+		if (accCov != -1)
+			glUniform1f(accCov, gSettings.accumulationCoverage);
+		if (accNoise != -1)
+			glUniform1f(accNoise, gSettings.accumulationNoiseScale);
+		if (accColor != -1)
+			glUniform3f(accColor, gSettings.accumulationColorR, gSettings.accumulationColorG, gSettings.accumulationColorB);
+		if (jitInt != -1)
+			glUniform1f(jitInt, gSettings.sparkleJitterIntensity);
+		if (jitSpd != -1)
+			glUniform1f(jitSpd, gSettings.sparkleJitterSpeed);
 		// Material
 		int ru = glGetUniformLocation(shaderprogram, "roughness");
 		if (ru != -1)
@@ -1120,6 +1276,16 @@ void draw(SDL_Window *window)
 		int ci = glGetUniformLocation(shaderprogram, "crackIntensity");
 		if (ci != -1)
 			glUniform1f(ci, gSettings.snowCrackIntensity);
+		// Depth-based aesthetics
+		int ddes = glGetUniformLocation(shaderprogram, "depthDesatStrength");
+		if (ddes != -1)
+			glUniform1f(ddes, gSettings.depthDesatStrength);
+		int dblu = glGetUniformLocation(shaderprogram, "depthBlueStrength");
+		if (dblu != -1)
+			glUniform1f(dblu, gSettings.depthBlueStrength);
+		int fh = glGetUniformLocation(shaderprogram, "fogHeightStrength");
+		if (fh != -1)
+			glUniform1f(fh, gSettings.fogHeightStrength);
 	}
 
 	// Enable alpha blending for transparent snow
@@ -1136,29 +1302,11 @@ void draw(SDL_Window *window)
 	int uDisc = glGetUniformLocation(shaderprogram, "useDisc");
 	if (uDisc != -1)
 		glUniform1i(uDisc, 0);
+	// Ensure billboard mode is OFF for static geometry to avoid invalid state
+	int uBillboardStatic = glGetUniformLocation(shaderprogram, "useBillboard");
+	if (uBillboardStatic != -1)
+		glUniform1i(uBillboardStatic, 0);
 
-	// DEBUG: Draw a bright red quad fixed in front of camera to confirm rendering
-	glDisable(GL_DEPTH_TEST);
-	{
-		glm::mat4 M(1.0f);
-		M = glm::translate(M, cameraPos + cameraFront * 8.0f + glm::vec3(0.0f, 0.0f, 0.0f));
-		M = glm::scale(M, glm::vec3(3.0f, 3.0f, 1.0f));
-		glUniformMatrix4fv(modelIndex, 1, GL_FALSE, glm::value_ptr(M));
-		// push bright red colors
-		glBindBuffer(GL_ARRAY_BUFFER, vboStatic[1]);
-		const GLfloat debugColors[18] = {
-			1.0f, 0.0f, 0.0f,
-			1.0f, 0.0f, 0.0f,
-			1.0f, 0.0f, 0.0f,
-			1.0f, 0.0f, 0.0f,
-			1.0f, 0.0f, 0.0f,
-			1.0f, 0.0f, 0.0f};
-		glBufferData(GL_ARRAY_BUFFER, sizeof(debugColors), debugColors, GL_DYNAMIC_DRAW);
-		glDrawArrays(GL_TRIANGLES, 0, staticVertexCount);
-		CHECK_GL_ERROR();
-	}
-	glEnable(GL_DEPTH_TEST);
-	CHECK_GL_ERROR();
 	// Main floor (y = -2.0) - visible and close to camera
 	{
 		glm::mat4 M(1.0f);
@@ -1167,16 +1315,25 @@ void draw(SDL_Window *window)
 		glUniformMatrix4fv(modelIndex, 1, GL_FALSE, glm::value_ptr(M));
 		glDrawArrays(GL_TRIANGLES, 0, staticVertexCount);
 		CHECK_GL_ERROR();
+		CHECK_GL_ERROR();
 	}
 
-	// Table surface (y = 2.0) - elevated platform for snow accumulation
+	// Draw extra surfaces (planes as thin boxes, cubes as columns)
 	{
-		glm::mat4 M(1.0f);
-		M = glm::translate(M, glm::vec3(0.0f, 2.0f, -5.0f));
-		M = glm::scale(M, glm::vec3(8.0f, 0.3f, 8.0f));
-		glUniformMatrix4fv(modelIndex, 1, GL_FALSE, glm::value_ptr(M));
-		glDrawArrays(GL_TRIANGLES, 0, staticVertexCount);
-		CHECK_GL_ERROR();
+		for (const auto &s : gExtraSurfaces)
+		{
+			glm::vec3 center = (s.minBounds + s.maxBounds) * 0.5f;
+			float topY = s.minBounds.y;
+			float halfX = (s.maxBounds.x - s.minBounds.x) * 0.5f;
+			float halfZ = (s.maxBounds.z - s.minBounds.z) * 0.5f;
+			float halfY = s.isCube ? s.halfHeight : 0.15f;
+			glm::mat4 M(1.0f);
+			M = glm::translate(M, glm::vec3(center.x, topY - halfY, center.z));
+			M = glm::scale(M, glm::vec3(halfX * 2.0f, halfY * 2.0f, halfZ * 2.0f));
+			glUniformMatrix4fv(modelIndex, 1, GL_FALSE, glm::value_ptr(M));
+			glDrawArrays(GL_TRIANGLES, 0, staticVertexCount);
+			CHECK_GL_ERROR();
+		}
 	}
 
 	// Table legs (4 legs)
@@ -1280,7 +1437,7 @@ void draw(SDL_Window *window)
 		}
 
 		// Render impostor spheres after opaque, disable depth writes
-		glDepthMask(GL_FALSE);
+		glDepthMask(GL_TRUE);
 		int viewW = 0, viewH = 0;
 		SDL_GetWindowSize(window, &viewW, &viewH);
 		glBindVertexArray(vaoImpostor);
@@ -1310,7 +1467,11 @@ void draw(SDL_Window *window)
 
 		for (int pyramidIndex : visiblePyramids)
 		{
-			static const int kMaxImpostorsPerFrame = 30000; // safety cap
+			// Adaptive impostor budget: target ~16ms; scale down if the previous frame exceeded 16ms
+			static float smoothedMs = 16.0f;
+			smoothedMs = smoothedMs * 0.9f + (deltaTime * 1000.0f) * 0.1f;
+			float budgetScale = (smoothedMs > 16.0f) ? (16.0f / smoothedMs) : 1.0f;
+			int kMaxImpostorsPerFrame = std::max(1000, (int)(gSettings.maxImpostorsPerFrame * budgetScale));
 			if (drawnThisFrame >= kMaxImpostorsPerFrame)
 			{
 				spBudgetCap++;
@@ -1337,17 +1498,33 @@ void draw(SDL_Window *window)
 					bool hitTable = particleY <= tableTop && pyramid.position.x >= -4.0f && pyramid.position.x <= 4.0f &&
 									pyramid.position.z >= -9.0f && pyramid.position.z <= -1.0f;
 					bool hitFloor = particleY <= floorLevel;
+					float extraY = 0.0f;
+					bool hitExtra = checkLandingOnExtras(pyramid.position, extraY);
 					bool reachedQuota = pyramid.fallDistanceRemaining <= 0.0f;
 
-					if (hitTable || hitFloor || reachedQuota)
+					if (hitTable || hitFloor || hitExtra || reachedQuota)
 					{
 						if (hitTable)
 						{
 							pyramid.position.y = tableTop; // Land on table
+							static int tableLands = 0;
+							if (++tableLands % 50 == 0)
+							{
+								std::cout << "[DEBUG] Snow particle landed on table! Total: " << tableLands << std::endl;
+							}
+						}
+						else if (hitExtra)
+						{
+							pyramid.position.y = extraY; // Land on extra surface top
 						}
 						else
 						{
 							pyramid.position.y = floorLevel; // Land on floor
+							static int floorLands = 0;
+							if (++floorLands % 100 == 0)
+							{
+								std::cout << "[DEBUG] Snow particle landed on floor! Total: " << floorLands << std::endl;
+							}
 						}
 						pyramid.landed = true;
 						pyramid.landedTimer = 0.0f;
@@ -1461,7 +1638,7 @@ void draw(SDL_Window *window)
 
 					if (sizeChanged || lodChanged || drawnThisFrame == 0)
 					{
-						float sizeScale = (lod >= 1.0f ? 2.5f : (lod >= 0.5f ? 3.0f : 3.5f)) * gSettings.impostorSizeMultiplier;
+						float sizeScale = (lod >= 1.0f ? 0.9f : (lod >= 0.5f ? 0.7f : 0.5f)) * gSettings.impostorSizeMultiplier;
 						float spriteHalfSize = pyramid.scale.x * 0.5f * sizeScale;
 						spriteHalfSize = glm::clamp(spriteHalfSize, gSettings.impostorMinWorldSize, gSettings.impostorMaxWorldSize);
 						if (uSpriteSize != -1)
@@ -1477,7 +1654,7 @@ void draw(SDL_Window *window)
 					// Update uniforms for every particle if batching is disabled
 					if (uBillboardCenter != -1)
 						glUniform3f(uBillboardCenter, pyramid.position.x, pyramid.position.y, pyramid.position.z);
-					float sizeScale = (lod >= 1.0f ? 2.5f : (lod >= 0.5f ? 3.0f : 3.5f)) * gSettings.impostorSizeMultiplier;
+					float sizeScale = (lod >= 1.0f ? 0.9f : (lod >= 0.5f ? 0.7f : 0.5f)) * gSettings.impostorSizeMultiplier;
 					float spriteHalfSize = pyramid.scale.x * 0.5f * sizeScale;
 					spriteHalfSize = glm::clamp(spriteHalfSize, gSettings.impostorMinWorldSize, gSettings.impostorMaxWorldSize);
 					if (uSpriteSize != -1)
@@ -1498,6 +1675,24 @@ void draw(SDL_Window *window)
 
 		// Feed UI overlay with debug counters
 		UI_SetDebugStats(gActivePyramids, (int)visiblePyramids.size(), spDrawn, spCulledOffscreen, spCulledTiny, spBudgetCap);
+		if (spDrawn == 0 && !visiblePyramids.empty())
+		{
+			// Draw a minimal sample to avoid blank screen while tuning culling
+			int sample = std::min((int)visiblePyramids.size(), 64);
+			for (int i = 0; i < sample; ++i)
+			{
+				int idx = visiblePyramids[i];
+				const Pyramid &p = pyramids[idx];
+				if (uBillboardCenter != -1)
+					glUniform3f(uBillboardCenter, p.position.x, p.position.y, p.position.z);
+				if (uSpriteSize != -1)
+					glUniform1f(uSpriteSize, glm::clamp(p.scale.x * 1.5f, gSettings.impostorMinWorldSize, gSettings.impostorMaxWorldSize));
+				if (uLodLevel != -1)
+					glUniform1f(uLodLevel, 1.0f);
+				glBindVertexArray(vaoImpostor);
+				glDrawArrays(GL_TRIANGLE_FAN, 0, impostorVertexCount);
+			}
+		}
 	}
 
 	// Draw all visible pyramids (as billboarded impostor spheres when SnowGlow is active)
@@ -1555,7 +1750,7 @@ void draw(SDL_Window *window)
 	}
 
 	// Render impostors after opaque, disable depth writes to reduce harsh sorting artifacts
-	glDepthMask(GL_FALSE);
+	glDepthMask(GL_TRUE);
 	int viewW = 0, viewH = 0;
 	SDL_GetWindowSize(window, &viewW, &viewH);
 	glBindVertexArray(vaoImpostor);
@@ -1585,7 +1780,11 @@ void draw(SDL_Window *window)
 
 	for (int pyramidIndex : visiblePyramids)
 	{
-		static const int kMaxImpostorsPerFrame = 30000; // safety cap
+		// Adaptive impostor budget: target ~16ms; scale down if the previous frame exceeded 16ms
+		static float smoothedMs = 16.0f;
+		smoothedMs = smoothedMs * 0.9f + (deltaTime * 1000.0f) * 0.1f;
+		float budgetScale = (smoothedMs > 16.0f) ? (16.0f / smoothedMs) : 1.0f;
+		int kMaxImpostorsPerFrame = std::max(1000, (int)(gSettings.maxImpostorsPerFrame * budgetScale));
 		if (drawnThisFrame >= kMaxImpostorsPerFrame)
 		{
 			spBudgetCap++;
@@ -1612,9 +1811,11 @@ void draw(SDL_Window *window)
 				bool hitTable = particleY <= tableTop && pyramid.position.x >= -4.0f && pyramid.position.x <= 4.0f &&
 								pyramid.position.z >= -9.0f && pyramid.position.z <= -1.0f;
 				bool hitFloor = particleY <= floorLevel;
+				float extraY = 0.0f;
+				bool hitExtra = checkLandingOnExtras(pyramid.position, extraY);
 				bool reachedQuota = pyramid.fallDistanceRemaining <= 0.0f;
 
-				if (hitTable || hitFloor || reachedQuota)
+				if (hitTable || hitFloor || hitExtra || reachedQuota)
 				{
 					if (hitTable)
 					{
@@ -1624,6 +1825,10 @@ void draw(SDL_Window *window)
 						{
 							std::cout << "[DEBUG] Snow particle landed on table! Total: " << tableLands << std::endl;
 						}
+					}
+					else if (hitExtra)
+					{
+						pyramid.position.y = extraY; // Land on extra surface top
 					}
 					else
 					{
@@ -1743,8 +1948,9 @@ void draw(SDL_Window *window)
 
 				if (sizeChanged || lodChanged || drawnThisFrame == 0)
 				{
-					float sizeScale = (lod >= 1.0f ? 2.5f : (lod >= 0.5f ? 3.0f : 3.5f)) * gSettings.impostorSizeMultiplier;
-					float spriteHalfSize = glm::max(0.1f, pyramid.scale.x * 0.5f * sizeScale);
+					float sizeScale = (lod >= 1.0f ? 0.9f : (lod >= 0.5f ? 0.7f : 0.5f)) * gSettings.impostorSizeMultiplier;
+					float spriteHalfSize = pyramid.scale.x * 0.5f * sizeScale;
+					spriteHalfSize = glm::clamp(spriteHalfSize, gSettings.impostorMinWorldSize, gSettings.impostorMaxWorldSize);
 					if (uSpriteSize != -1)
 						glUniform1f(uSpriteSize, spriteHalfSize);
 					if (uLodLevel != -1)
@@ -1758,7 +1964,7 @@ void draw(SDL_Window *window)
 				// Update uniforms for every particle if batching is disabled
 				if (uBillboardCenter != -1)
 					glUniform3f(uBillboardCenter, pyramid.position.x, pyramid.position.y, pyramid.position.z);
-				float sizeScale = (lod >= 1.0f ? 2.5f : (lod >= 0.5f ? 3.0f : 3.5f)) * gSettings.impostorSizeMultiplier;
+				float sizeScale = (lod >= 1.0f ? 0.9f : (lod >= 0.5f ? 0.7f : 0.5f)) * gSettings.impostorSizeMultiplier;
 				float spriteHalfSize = pyramid.scale.x * 0.5f * sizeScale;
 				spriteHalfSize = glm::clamp(spriteHalfSize, gSettings.impostorMinWorldSize, gSettings.impostorMaxWorldSize);
 				if (uSpriteSize != -1)
