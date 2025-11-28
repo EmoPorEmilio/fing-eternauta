@@ -1,23 +1,22 @@
-#version 400 core
+#version 450 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec2 aUV;
 
-uniform mat4 projection;
-uniform mat4 view;
-uniform mat4 model;
-uniform mat3 normalMatrix;
+// Also feed TES pipeline
+out vec3 FragPos;
+out vec3 Normal;
+out vec2 vUV;
 
-layout (location = 0) in vec3 in_Position;
-layout (location = 1) in vec3 in_Color;
-layout (location = 2) in vec3 in_Normal;
+uniform mat4 uModel;
+uniform mat4 uView;
+uniform mat4 uProj;
 
-out vec3 vertex_color;
-out vec3 worldPos;
-out vec3 worldNormal;
-
-void main(void) {
-    mat4 MVP = projection * view * model;
-    gl_Position = MVP * vec4(in_Position, 1.0);
-    
-    worldPos = vec3(model * vec4(in_Position, 1.0));
-    worldNormal = normalMatrix * in_Normal;
-    vertex_color = in_Color;
+void main()
+{
+	vec4 worldPos = uModel * vec4(aPos, 1.0);
+	FragPos = worldPos.xyz;
+	Normal = mat3(transpose(inverse(uModel))) * aNormal;
+	vUV = aUV;
+	gl_Position = uProj * uView * worldPos;
 }

@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
       <Configuration>Debug</Configuration>
@@ -14,7 +14,7 @@
     <ProjectGuid>{253970C5-4794-4D0E-AC65-24BFFE03C8A7}</ProjectGuid>
     <RootNamespace>OpenGLbasico</RootNamespace>
     <ProjectName>OpenGL-avanzado</ProjectName>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.22621.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
@@ -39,12 +39,12 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>..\libraries\Freeimage;..\libraries\SDL2-2.0.12\include;$(IncludePath)</IncludePath>
+    <IncludePath>..\libraries\Freeimage;..\libraries\SDL2-2.0.12\include;..\libraries\imgui;..\libraries\tinygltf;..\libraries\glm;$(IncludePath)</IncludePath>
     <LibraryPath>..\libraries\SDL2-2.0.12\lib\x64;..\libraries\Freeimage;$(LibraryPath)</LibraryPath>
     <ExecutablePath>$(VC_ExecutablePath_x64);$(WindowsSDK_ExecutablePath);$(VS_ExecutablePath);$(MSBuild_ExecutablePath);$(SystemRoot)\SysWow64;$(FxCopDir);$(PATH);</ExecutablePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>..\libraries\Freeimage;..\libraries\SDL2-2.0.12\include;$(IncludePath)</IncludePath>
+    <IncludePath>..\libraries\Freeimage;..\libraries\SDL2-2.0.12\include;..\libraries\imgui;..\libraries\tinygltf;..\libraries\glm;$(IncludePath)</IncludePath>
     <LibraryPath>..\libraries\SDL2-2.0.12\lib\x64;..\libraries\Freeimage;$(LibraryPath)</LibraryPath>
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
@@ -54,6 +54,7 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..\libraries\glad;..\libraries\glm;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -69,6 +70,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..\libraries\glad;..\libraries\glm;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -86,17 +88,127 @@
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\libraries\imgui\imgui.cpp" />
+    <ClCompile Include="..\libraries\imgui\imgui_draw.cpp" />
+    <ClCompile Include="..\libraries\imgui\imgui_tables.cpp" />
+    <ClCompile Include="..\libraries\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="..\libraries\imgui\imgui_impl_sdl2.cpp" />
+    <ClCompile Include="..\libraries\imgui\imgui_impl_opengl3.cpp" />
     <ClCompile Include="..\glad.c" />
-    <ClCompile Include="..\main.cpp" />
-    <ClCompile Include="..\UI.cpp" />
+    <ClCompile Include="..\main_new.cpp" />
+    <ClCompile Include="..\Application.cpp" />
+    <ClCompile Include="..\AssetManager.cpp" />
+    <ClCompile Include="..\Camera.cpp" />
+    <ClCompile Include="..\GLTFModel.cpp" />
+    <ClCompile Include="..\LightManager.cpp" />
+    <ClCompile Include="..\ModelManager.cpp" />
+    <ClCompile Include="..\ObjectManager.cpp" />
+    <ClCompile Include="..\Prism.cpp" />
+    <ClCompile Include="..\Renderer.cpp" />
+    <ClCompile Include="..\Scene.cpp" />
+    <ClCompile Include="..\Shader.cpp" />
+    <ClCompile Include="..\SnowSystem.cpp" />
+    <ClCompile Include="..\Texture.cpp" />
+    <ClCompile Include="..\libraries\tinygltf\tiny_gltf.cc" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\simple.frag" />
-    <None Include="..\simple.vert" />
-    <None Include="..\shaders\phong_simple.vert" />
-    <None Include="..\shaders\phong_simple.frag" />
-    <None Include="..\shaders\snow_glow.vert" />
-    <None Include="..\shaders\snow_glow.frag" />
+    <ClInclude Include="..\Application.h" />
+    <ClInclude Include="..\AssetManager.h" />
+    <ClInclude Include="..\Camera.h" />
+    <ClInclude Include="..\Constants.h" />
+    <ClInclude Include="..\GLTFModel.h" />
+    <ClInclude Include="..\LightManager.h" />
+    <ClInclude Include="..\ModelManager.h" />
+    <ClInclude Include="..\ObjectManager.h" />
+    <ClInclude Include="..\Prism.h" />
+    <ClInclude Include="..\Renderer.h" />
+    <ClInclude Include="..\Scene.h" />
+    <ClInclude Include="..\Shader.h" />
+    <ClInclude Include="..\SnowSystem.h" />
+    <ClInclude Include="..\Texture.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\shaders\phong.vert">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\phong.frag">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\phong_notess.vert">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\phong_notess.frag">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\snow_glow.vert">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\snow_glow.frag">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\tess_control.glsl">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\tess_eval.glsl">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\unified_lighting.frag">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\pbr_model.vert">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\pbr_model.frag">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\simple_test.vert">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\simple_test.frag">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\object_instanced.vert">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\object_instanced.frag">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\fullscreen_quad.vert">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\overlay_accum.frag">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\present.frag">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\shadertoy_overlay.frag">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\assets\modelo_fing.glb">
+      <Link>assets\modelo_fing.glb</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\assets\snow.glb">
+      <Link>assets\snow.glb</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\assets\snowflake-fab.glb">
+      <Link>assets\snowflake-fab.glb</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\assets\snow\**\*.*">
+      <Link>assets\snow\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\assets\Baked_snowflake.png">
+      <Link>assets\Baked_snowflake.png</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\assets\fonts\**\*.*">
+      <Link>assets\fonts\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
