@@ -1,3 +1,40 @@
+/**
+ * @file SnowSystem.h
+ * @brief Real-time snow particle simulation with optional Bullet3 physics
+ *
+ * SnowSystem manages thousands of snow particles with GPU-instanced billboard
+ * rendering, wind simulation, and optional ground collision via Bullet3.
+ *
+ * Particle Simulation:
+ *   - Vertical fall with configurable speed (m_fallSpeed)
+ *   - Wind displacement based on direction and speed
+ *   - Respawn at top when falling below floor level
+ *   - Per-particle seed for visual variation
+ *
+ * GPU Resources:
+ *   - m_quadVAO/VBO: Shared billboard quad geometry
+ *   - m_instanceVBO: Per-particle data (position.xyz, seed.w)
+ *   - m_puffVAO/VBO: Impact puff particles (when using Bullet3)
+ *   - snow_glow.vert/frag shader
+ *
+ * Bullet3 Integration (Optional):
+ *   - Creates minimal physics world with ground plane
+ *   - Ray tests from each particle to detect ground collision
+ *   - Spawns impact puffs at collision points
+ *   - Enable via setBulletGroundCollisionEnabled(true)
+ *
+ * ECS Integration:
+ *   - Creates entities with TransformComponent, ParticleComponent, RenderableComponent
+ *   - gatherSnowflakeData() queries ECS and populates m_instanceData
+ *   - GPU upload via glBufferSubData() each frame
+ *
+ * Performance Notes:
+ *   - Default 30,000 particles
+ *   - Frustum culling optional (m_frustumCulling)
+ *   - Bullet3 ray testing adds CPU overhead when enabled
+ *
+ * @see ParticleComponent, snow_glow.vert, snow_glow.frag
+ */
 #pragma once
 
 #include <glad/glad.h>
@@ -6,9 +43,15 @@
 #include <random>
 #include <cstddef>
 
+// ECS includes
+#include "ECSWorld.h"
+#include "components/TransformComponent.h"
+#include "components/ParticleComponent.h"
+#include "components/RenderableComponent.h"
+
 class Shader;
 
-// Forward declarations for Bullet types to avoid heavy includes in header
+// Forward declarations for Bullet types
 class btDefaultCollisionConfiguration;
 class btCollisionDispatcher;
 class btBroadphaseInterface;
@@ -17,16 +60,6 @@ class btDiscreteDynamicsWorld;
 class btCollisionShape;
 class btDefaultMotionState;
 class btRigidBody;
-
-struct Snowflake
-{
-    glm::vec3 position;
-    glm::vec3 prevPosition;   // For future motion blur
-    float seed;               // Random seed for per-flake variation
-    float fallSpeed;          // Individual fall speed variation
-    bool settled = false;     // Settled on ground briefly
-    float settleTimer = 0.0f; // Seconds remaining while settled
-};
 
 class SnowSystem
 {
@@ -56,7 +89,7 @@ public:
     void setFrustumCulling(bool enabled) { m_frustumCulling = enabled; }
     bool isFrustumCullingEnabled() const { return m_frustumCulling; }
 
-    // Fog settings
+    // Fog settings (will be moved to Config in Phase 3)
     void setFogEnabled(bool enabled) { m_fogEnabled = enabled; }
     void setFogColor(const glm::vec3 &color) { m_fogColor = color; }
     void setFogDensity(float density) { m_fogDensity = density; }
@@ -78,12 +111,9 @@ public:
 
 private:
     void setupBuffers();
-    void updateBuffers();
     void updatePuffs(float deltaTime);
     void uploadPuffs();
-    void respawnFlake(int index);
     glm::vec3 getRandomSpawnPosition(const glm::vec3 &cameraPos, const glm::mat4 &viewMatrix);
-    void performFrustumCulling(const glm::mat4 &viewProj);
 
     // Bullet helpers
     void initializeBullet();
@@ -92,9 +122,6 @@ private:
     // State
     bool m_enabled;
     bool m_initialized;
-
-    // Snowflake data
-    std::vector<Snowflake> m_snowflakes;
     int m_count;
 
     // Physics parameters
@@ -113,9 +140,6 @@ private:
     // Performance settings
     bool m_frustumCulling;
     int m_visibleCount;
-    int m_drawCount;
-    std::vector<int> m_visibleIndices;
-    glm::mat4 m_lastViewProj;
 
     // Fog settings
     bool m_fogEnabled;
@@ -156,7 +180,18 @@ private:
         float lifetime;
     };
     std::vector<ImpactPuff> m_puffs;
-    float m_settleDuration = 0.35f; // seconds a flake rests on ground
-    float m_puffLifetime = 0.45f;   // seconds puff fades out
-    float m_puffSize = 0.12f;       // world-space half-size of puff disc
+    float m_settleDuration = 0.35f;
+    float m_puffLifetime = 0.45f;
+    float m_puffSize = 0.12f;
+
+    // Entity tracking
+    std::vector<ecs::Entity> m_entities;
+
+    // ECS helper methods
+    ecs::Entity createSnowflakeEntity(const glm::vec3& position, float seed, float fallSpeed);
+    void createSnowflakeEntities();
+    void gatherSnowflakeData();
+
+    // Cached data for GPU upload
+    std::vector<float> m_instanceData;
 };

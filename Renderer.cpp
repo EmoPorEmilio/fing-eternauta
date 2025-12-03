@@ -28,11 +28,17 @@ bool Renderer::initialize(int width, int height)
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
+    // Get display bounds for fullscreen
+    SDL_DisplayMode displayMode;
+    SDL_GetCurrentDisplayMode(0, &displayMode);
+    windowWidth = displayMode.w;
+    windowHeight = displayMode.h;
+
     window = SDL_CreateWindow(
-        "OpenGL Barebones",
+        "Proyecto Viviana - OpenGL Scene Editor",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        width, height,
-        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+        windowWidth, windowHeight,
+        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED);
 
     if (!window)
     {
@@ -74,17 +80,19 @@ bool Renderer::initialize(int width, int height)
     return true;
 }
 
-void Renderer::render(const Camera &camera, Scene &scene, LightManager &lightManager)
+void Renderer::render(const Camera &camera, IScene &scene, LightManager &lightManager)
 {
-    glClearColor(0.08f, 0.1f, 0.12f, 1.0f);
+    // Blender-style dark background (#282828)
+    glClearColor(0.157f, 0.157f, 0.157f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     scene.render(camera.getViewMatrix(), getProjection(), camera.getPosition(), camera.getFront(), lightManager);
 }
 
-void Renderer::render(const Camera &camera, Scene &scene, LightManager &lightManager, float timeSeconds, float deltaTime, float overlaySnowSpeed, bool accumEnabled, float accumDecayPerSec, float overlayDirectionDeg, float trailGain, float advectionScale)
+void Renderer::render(const Camera &camera, IScene &scene, LightManager &lightManager, float timeSeconds, float deltaTime, float overlaySnowSpeed, bool accumEnabled, float accumDecayPerSec, float overlayDirectionDeg, float trailGain, float advectionScale)
 {
-    glClearColor(0.08f, 0.1f, 0.12f, 1.0f);
+    // Blender-style dark background (#282828)
+    glClearColor(0.157f, 0.157f, 0.157f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     scene.render(camera.getViewMatrix(), getProjection(), camera.getPosition(), camera.getFront(), lightManager);

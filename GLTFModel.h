@@ -81,6 +81,8 @@ public:
 
     // Animation control (MVP)
     void setAnimationTime(float seconds) { m_animTime = seconds; }
+    float getAnimationTime() const { return m_animTime; }
+    void advanceAnimation(float deltaTime) { m_animTime += deltaTime; }
     void setAnimationEnabled(bool enabled) { m_animEnabled = enabled; }
 
     // Transform
@@ -132,6 +134,11 @@ private:
     };
     std::vector<SkinData> m_skins;
     std::vector<glm::mat4> m_nodeGlobalTransforms; // indexed by node index
+
+    // Node hierarchy for animation
+    std::vector<int> m_nodeParents;          // parent index per node (-1 for roots)
+    std::vector<std::vector<int>> m_nodeChildren; // children per node
+    std::vector<int> m_sceneRoots;           // root nodes of scene 0
 
     // Base local TRS per node (for animation blending)
     std::vector<glm::vec3> m_nodeBaseT;

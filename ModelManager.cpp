@@ -2,7 +2,9 @@
 #include <iostream>
 
 ModelManager::ModelManager()
-    : m_isInitialized(false), m_fogEnabled(true), m_fogColor(0.0f, 0.0f, 0.0f), m_fogDensity(0.01f), m_fogDesaturationStrength(1.0f), m_fogAbsorptionDensity(0.02f), m_fogAbsorptionStrength(0.8f)
+    : m_isInitialized(false), m_fogEnabled(true), m_fogColor(0.0f, 0.0f, 0.0f),
+      m_fogDensity(0.01f), m_fogDesaturationStrength(1.0f),
+      m_fogAbsorptionDensity(0.02f), m_fogAbsorptionStrength(0.8f)
 {
 }
 
@@ -18,24 +20,35 @@ bool ModelManager::initialize()
         return true;
     }
 
-    std::cout << "Initializing ModelManager..." << std::endl;
+    std::cout << "[ModelManager] Initializing..." << std::endl;
 
     if (!setupPBRShader())
     {
-        std::cerr << "Failed to setup PBR shader" << std::endl;
+        std::cerr << "[ModelManager] Failed to setup PBR shader" << std::endl;
         return false;
     }
 
+    m_instanceEntities.clear();
+
     m_isInitialized = true;
-    std::cout << "ModelManager initialized successfully!" << std::endl;
+    std::cout << "[ModelManager] Initialized successfully!" << std::endl;
     return true;
 }
 
 void ModelManager::cleanup()
 {
-    // Don't cleanup instances since they reference models owned by m_models
-    m_instances.clear();
+    // Destroy our entities in the global registry
+    auto& registry = ECSWorld::getRegistry();
+    for (auto entity : m_instanceEntities)
+    {
+        if (registry.isValid(entity))
+        {
+            registry.destroy(entity);
+        }
+    }
+    m_instanceEntities.clear();
 
+    // Cleanup models
     for (auto &pair : m_models)
     {
         if (pair.second)
@@ -51,60 +64,85 @@ void ModelManager::cleanup()
 
 bool ModelManager::setupPBRShader()
 {
-    std::cout << "Loading PBR shaders..." << std::endl;
+    std::cout << "[ModelManager] Loading PBR shaders..." << std::endl;
 
-    // Try different paths for shaders
     std::vector<std::pair<std::string, std::string>> shaderPaths = {
-        {"pbr_model.vert", "pbr_model.frag"},                             // Direct in output directory
-        {"shaders/pbr_model.vert", "shaders/pbr_model.frag"},             // In shaders subdirectory
-        {"../shaders/pbr_model.vert", "../shaders/pbr_model.frag"},       // One level up
-        {"../../shaders/pbr_model.vert", "../../shaders/pbr_model.frag"}, // Two levels up
-        {"simple_test.vert", "simple_test.frag"}                          // Fallback to simple test shaders
+        {"pbr_model.vert", "pbr_model.frag"},
+        {"shaders/pbr_model.vert", "shaders/pbr_model.frag"},
+        {"../shaders/pbr_model.vert", "../shaders/pbr_model.frag"},
+        {"../../shaders/pbr_model.vert", "../../shaders/pbr_model.frag"},
+        {"simple_test.vert", "simple_test.frag"}
     };
 
     for (const auto &paths : shaderPaths)
     {
-        std::cout << "Trying to load shaders: " << paths.first << ", " << paths.second << std::endl;
         if (m_pbrShader.loadFromFiles(paths.first, paths.second))
         {
-            std::cout << "PBR shader loaded successfully from: " << paths.first << std::endl;
+            std::cout << "[ModelManager] PBR shader loaded from: " << paths.first << std::endl;
+            cacheUniformLocations();
             return true;
         }
     }
 
-    std::cerr << "Failed to load PBR shaders from any path" << std::endl;
+    std::cerr << "[ModelManager] Failed to load PBR shaders from any path" << std::endl;
     return false;
+}
+
+void ModelManager::cacheUniformLocations()
+{
+    GLuint shaderProgram = m_pbrShader.getProgram();
+    if (shaderProgram == 0) return;
+
+    m_uniforms.cameraPos = glGetUniformLocation(shaderProgram, "uCameraPos");
+    m_uniforms.lightDir = glGetUniformLocation(shaderProgram, "uLightDir");
+    m_uniforms.lightColor = glGetUniformLocation(shaderProgram, "uLightColor");
+    m_uniforms.exposure = glGetUniformLocation(shaderProgram, "uExposure");
+    m_uniforms.flashlightOn = glGetUniformLocation(shaderProgram, "uFlashlightOn");
+    m_uniforms.flashlightPos = glGetUniformLocation(shaderProgram, "uFlashlightPos");
+    m_uniforms.flashlightDir = glGetUniformLocation(shaderProgram, "uFlashlightDir");
+    m_uniforms.flashlightCutoff = glGetUniformLocation(shaderProgram, "uFlashlightCutoff");
+    m_uniforms.flashlightBrightness = glGetUniformLocation(shaderProgram, "uFlashlightBrightness");
+    m_uniforms.flashlightColor = glGetUniformLocation(shaderProgram, "uFlashlightColor");
+    m_uniforms.debugNormals = glGetUniformLocation(shaderProgram, "uDebugNormals");
+    m_uniforms.fogEnabled = glGetUniformLocation(shaderProgram, "uFogEnabled");
+    m_uniforms.fogColor = glGetUniformLocation(shaderProgram, "uFogColor");
+    m_uniforms.fogDensity = glGetUniformLocation(shaderProgram, "uFogDensity");
+    m_uniforms.fogDesaturationStrength = glGetUniformLocation(shaderProgram, "uFogDesaturationStrength");
+    m_uniforms.fogAbsorptionDensity = glGetUniformLocation(shaderProgram, "uFogAbsorptionDensity");
+    m_uniforms.fogAbsorptionStrength = glGetUniformLocation(shaderProgram, "uFogAbsorptionStrength");
+    m_uniforms.backgroundColor = glGetUniformLocation(shaderProgram, "uBackgroundColor");
+
+    std::cout << "[ModelManager] Cached " << 18 << " uniform locations" << std::endl;
 }
 
 bool ModelManager::loadModel(const std::string &filepath, const std::string &name)
 {
     if (!m_isInitialized)
     {
-        std::cerr << "ModelManager not initialized" << std::endl;
+        std::cerr << "[ModelManager] Not initialized" << std::endl;
         return false;
     }
 
     std::string modelName = name.empty() ? filepath : name;
 
-    // Check if model already exists
     if (findModelIndex(modelName) != -1)
     {
-        std::cout << "Model '" << modelName << "' already loaded" << std::endl;
+        std::cout << "[ModelManager] Model '" << modelName << "' already loaded" << std::endl;
         return true;
     }
 
-    std::cout << "Loading GLTF model: " << filepath << " as '" << modelName << "'" << std::endl;
+    std::cout << "[ModelManager] Loading GLTF model: " << filepath << " as '" << modelName << "'" << std::endl;
 
     auto model = std::make_unique<GLTFModel>();
     if (!model->loadFromFile(filepath))
     {
-        std::cerr << "Failed to load model: " << filepath << std::endl;
+        std::cerr << "[ModelManager] Failed to load model: " << filepath << std::endl;
         return false;
     }
 
     m_models.emplace_back(modelName, std::move(model));
 
-    std::cout << "Model '" << modelName << "' loaded successfully" << std::endl;
+    std::cout << "[ModelManager] Model '" << modelName << "' loaded successfully" << std::endl;
     return true;
 }
 
@@ -113,26 +151,16 @@ void ModelManager::removeModel(const std::string &name)
     int index = findModelIndex(name);
     if (index == -1)
     {
-        std::cout << "Model '" << name << "' not found" << std::endl;
+        std::cout << "[ModelManager] Model '" << name << "' not found" << std::endl;
         return;
     }
 
-    // Remove all instances of this model
-    m_instances.erase(
-        std::remove_if(m_instances.begin(), m_instances.end(),
-                       [&](const ModelInstance &instance)
-                       {
-                           // We can't directly compare model pointers, so we'll need to find a better way
-                           // For now, we'll remove all instances when removing a model
-                           return true;
-                       }),
-        m_instances.end());
-
-    // Remove the model
+    // TODO: Remove all instances referencing this model
+    // For now, just remove the model
     m_models[index].second->cleanup();
     m_models.erase(m_models.begin() + index);
 
-    std::cout << "Model '" << name << "' removed" << std::endl;
+    std::cout << "[ModelManager] Model '" << name << "' removed" << std::endl;
 }
 
 GLTFModel *ModelManager::getModel(const std::string &name)
@@ -150,61 +178,78 @@ int ModelManager::addModelInstance(const std::string &modelName, const glm::mat4
     int modelIndex = findModelIndex(modelName);
     if (modelIndex == -1)
     {
-        std::cerr << "Model '" << modelName << "' not found" << std::endl;
+        std::cerr << "[ModelManager] Model '" << modelName << "' not found" << std::endl;
         return -1;
     }
 
-    // Create an instance that references the loaded model
     GLTFModel *modelPtr = m_models[modelIndex].second.get();
-    m_instances.emplace_back(modelPtr, transform);
 
-    int instanceId = static_cast<int>(m_instances.size() - 1);
-    std::cout << "Added instance " << instanceId << " of model '" << modelName << "'" << std::endl;
+    ecs::Entity entity = createModelInstanceEntity(modelPtr, transform);
+    m_instanceEntities.push_back(entity);
+    int instanceId = static_cast<int>(m_instanceEntities.size() - 1);
 
+    std::cout << "[ModelManager] Added instance " << instanceId << " of model '" << modelName << "'" << std::endl;
     return instanceId;
 }
 
 void ModelManager::removeModelInstance(int instanceId)
 {
-    if (instanceId < 0 || instanceId >= static_cast<int>(m_instances.size()))
+    if (instanceId < 0 || instanceId >= static_cast<int>(m_instanceEntities.size()))
     {
-        std::cerr << "Invalid instance ID: " << instanceId << std::endl;
+        std::cerr << "[ModelManager] Invalid instance ID: " << instanceId << std::endl;
         return;
     }
 
-    // Don't cleanup the model since it's owned by m_models
-    m_instances.erase(m_instances.begin() + instanceId);
+    auto& registry = ECSWorld::getRegistry();
+    ecs::Entity entity = m_instanceEntities[instanceId];
+    if (registry.isValid(entity))
+    {
+        registry.destroy(entity);
+    }
+    m_instanceEntities.erase(m_instanceEntities.begin() + instanceId);
 
-    std::cout << "Removed instance " << instanceId << std::endl;
+    std::cout << "[ModelManager] Removed instance " << instanceId << std::endl;
 }
 
 void ModelManager::setInstanceTransform(int instanceId, const glm::mat4 &transform)
 {
-    if (instanceId < 0 || instanceId >= static_cast<int>(m_instances.size()))
+    if (instanceId < 0 || instanceId >= static_cast<int>(m_instanceEntities.size()))
     {
-        std::cerr << "Invalid instance ID: " << instanceId << std::endl;
+        std::cerr << "[ModelManager] Invalid instance ID: " << instanceId << std::endl;
         return;
     }
 
-    m_instances[instanceId].transform = transform;
+    auto& registry = ECSWorld::getRegistry();
+    ecs::Entity entity = m_instanceEntities[instanceId];
+    if (auto* transformComp = registry.tryGet<ecs::TransformComponent>(entity))
+    {
+        transformComp->position = glm::vec3(transform[3]);
+        transformComp->modelMatrix = transform;
+        transformComp->dirty = false;
+    }
 }
 
 void ModelManager::setInstanceVisibility(int instanceId, bool visible)
 {
-    if (instanceId < 0 || instanceId >= static_cast<int>(m_instances.size()))
+    if (instanceId < 0 || instanceId >= static_cast<int>(m_instanceEntities.size()))
     {
-        std::cerr << "Invalid instance ID: " << instanceId << std::endl;
+        std::cerr << "[ModelManager] Invalid instance ID: " << instanceId << std::endl;
         return;
     }
 
-    m_instances[instanceId].isVisible = visible;
+    auto& registry = ECSWorld::getRegistry();
+    ecs::Entity entity = m_instanceEntities[instanceId];
+    if (auto* renderable = registry.tryGet<ecs::RenderableComponent>(entity))
+    {
+        renderable->visible = visible;
+    }
 }
 
 void ModelManager::render(const glm::mat4 &view, const glm::mat4 &projection,
                           const glm::vec3 &cameraPos, const glm::vec3 &lightDir,
                           const glm::vec3 &lightColor, const LightManager &lightManager)
 {
-    if (!m_isInitialized || m_instances.empty())
+    if (!m_isInitialized || m_instanceEntities.empty())
     {
         return;
     }
@@ -212,124 +257,99 @@ void ModelManager::render(const glm::mat4 &view, const glm::mat4 &projection,
     GLuint shaderProgram = m_pbrShader.getProgram();
     if (shaderProgram == 0)
     {
-        std::cerr << "PBR shader not ready" << std::endl;
+        std::cerr << "[ModelManager] PBR shader not ready" << std::endl;
         return;
     }
 
-    // Set common uniforms
     glUseProgram(shaderProgram);
 
-    GLint locCameraPos = glGetUniformLocation(shaderProgram, "uCameraPos");
-    GLint locLightDir = glGetUniformLocation(shaderProgram, "uLightDir");
-    GLint locLightColor = glGetUniformLocation(shaderProgram, "uLightColor");
-    GLint locExposure = glGetUniformLocation(shaderProgram, "uExposure");
-
-    // Flashlight uniforms
-    GLint locFlashlightOn = glGetUniformLocation(shaderProgram, "uFlashlightOn");
-    GLint locFlashlightPos = glGetUniformLocation(shaderProgram, "uFlashlightPos");
-    GLint locFlashlightDir = glGetUniformLocation(shaderProgram, "uFlashlightDir");
-    GLint locFlashlightCutoff = glGetUniformLocation(shaderProgram, "uFlashlightCutoff");
-    GLint locFlashlightBrightness = glGetUniformLocation(shaderProgram, "uFlashlightBrightness");
-    GLint locFlashlightColor = glGetUniformLocation(shaderProgram, "uFlashlightColor");
-
-    // Debug uniforms
-    GLint locDebugNormals = glGetUniformLocation(shaderProgram, "uDebugNormals");
-
-    // Fog uniforms
-    GLint locFogEnabled = glGetUniformLocation(shaderProgram, "uFogEnabled");
-    GLint locFogColor = glGetUniformLocation(shaderProgram, "uFogColor");
-    GLint locFogDensity = glGetUniformLocation(shaderProgram, "uFogDensity");
-    GLint locFogDesaturationStrength = glGetUniformLocation(shaderProgram, "uFogDesaturationStrength");
-    GLint locFogAbsorptionDensity = glGetUniformLocation(shaderProgram, "uFogAbsorptionDensity");
-    GLint locFogAbsorptionStrength = glGetUniformLocation(shaderProgram, "uFogAbsorptionStrength");
-    GLint locBackgroundColor = glGetUniformLocation(shaderProgram, "uBackgroundColor");
-
-    if (locCameraPos >= 0)
-        glUniform3fv(locCameraPos, 1, glm::value_ptr(cameraPos));
-    if (locLightDir >= 0)
-        glUniform3fv(locLightDir, 1, glm::value_ptr(lightDir));
-    if (locLightColor >= 0)
-        glUniform3fv(locLightColor, 1, glm::value_ptr(lightColor));
-    if (locExposure >= 0)
-        glUniform1f(locExposure, 1.0f);
-
-    // Debug flashlight state (gated by runtime env var OPENGL_ADV_DEBUG_LOGS)
-    static bool gDebugLogs = (std::getenv("OPENGL_ADV_DEBUG_LOGS") != nullptr);
-    static int debugCounter = 0;
-    if (gDebugLogs)
-    {
-        if (debugCounter % 60 == 0)
-        {
-            std::cout << "=== SHADER FLASHLIGHT DEBUG ===" << std::endl;
-            std::cout << "Shader Program: " << shaderProgram << std::endl;
-            std::cout << "Flashlight On: " << (lightManager.isFlashlightOn() ? "YES" : "NO") << std::endl;
-            std::cout << "Uniform Locations - On:" << locFlashlightOn << " Pos:" << locFlashlightPos
-                      << " Dir:" << locFlashlightDir << " Cutoff:" << locFlashlightCutoff
-                      << " Brightness:" << locFlashlightBrightness << " Color:" << locFlashlightColor << std::endl;
-            std::cout << "Flashlight Brightness: " << lightManager.getFlashlightBrightness() << std::endl;
-            std::cout << "Flashlight Cutoff: " << lightManager.getFlashlightCutoff() << std::endl;
-        }
-        debugCounter++;
-    }
+    // Use cached uniform locations (no glGetUniformLocation calls per frame)
+    if (m_uniforms.cameraPos >= 0)
+        glUniform3fv(m_uniforms.cameraPos, 1, glm::value_ptr(cameraPos));
+    if (m_uniforms.lightDir >= 0)
+        glUniform3fv(m_uniforms.lightDir, 1, glm::value_ptr(lightDir));
+    if (m_uniforms.lightColor >= 0)
+        glUniform3fv(m_uniforms.lightColor, 1, glm::value_ptr(lightColor));
+    if (m_uniforms.exposure >= 0)
+        glUniform1f(m_uniforms.exposure, 1.0f);
 
     // Set flashlight uniforms from LightManager
-    if (locFlashlightOn >= 0)
-        glUniform1i(locFlashlightOn, lightManager.isFlashlightOn() ? 1 : 0);
-    if (locFlashlightPos >= 0)
-        glUniform3fv(locFlashlightPos, 1, glm::value_ptr(lightManager.getFlashlightPosition()));
-    if (locFlashlightDir >= 0)
-        glUniform3fv(locFlashlightDir, 1, glm::value_ptr(lightManager.getFlashlightDirection()));
-    if (locFlashlightCutoff >= 0)
-        glUniform1f(locFlashlightCutoff, lightManager.getFlashlightCutoff());
-    if (locFlashlightBrightness >= 0)
-        glUniform1f(locFlashlightBrightness, lightManager.getFlashlightBrightness());
-    if (locFlashlightColor >= 0)
-        glUniform3fv(locFlashlightColor, 1, glm::value_ptr(lightManager.getFlashlightColor()));
+    if (m_uniforms.flashlightOn >= 0)
+        glUniform1i(m_uniforms.flashlightOn, lightManager.isFlashlightOn() ? 1 : 0);
+    if (m_uniforms.flashlightPos >= 0)
+        glUniform3fv(m_uniforms.flashlightPos, 1, glm::value_ptr(lightManager.getFlashlightPosition()));
+    if (m_uniforms.flashlightDir >= 0)
+        glUniform3fv(m_uniforms.flashlightDir, 1, glm::value_ptr(lightManager.getFlashlightDirection()));
+    if (m_uniforms.flashlightCutoff >= 0)
+        glUniform1f(m_uniforms.flashlightCutoff, lightManager.getFlashlightCutoff());
+    if (m_uniforms.flashlightBrightness >= 0)
+        glUniform1f(m_uniforms.flashlightBrightness, lightManager.getFlashlightBrightness());
+    if (m_uniforms.flashlightColor >= 0)
+        glUniform3fv(m_uniforms.flashlightColor, 1, glm::value_ptr(lightManager.getFlashlightColor()));
 
     // Set debug uniforms
-    if (locDebugNormals >= 0)
-        glUniform1i(locDebugNormals, 0); // Disabled by default
+    if (m_uniforms.debugNormals >= 0)
+        glUniform1i(m_uniforms.debugNormals, 0);
 
     // Set fog uniforms
-    if (locFogEnabled >= 0)
-        glUniform1i(locFogEnabled, m_fogEnabled ? 1 : 0);
-    if (locFogColor >= 0)
-        glUniform3fv(locFogColor, 1, glm::value_ptr(m_fogColor));
-    if (locFogDensity >= 0)
-        glUniform1f(locFogDensity, m_fogDensity);
-    if (locFogDesaturationStrength >= 0)
-        glUniform1f(locFogDesaturationStrength, m_fogDesaturationStrength);
-    if (locFogAbsorptionDensity >= 0)
-        glUniform1f(locFogAbsorptionDensity, m_fogAbsorptionDensity);
-    if (locFogAbsorptionStrength >= 0)
-        glUniform1f(locFogAbsorptionStrength, m_fogAbsorptionStrength);
-    if (locBackgroundColor >= 0)
-        glUniform3f(locBackgroundColor, 0.08f, 0.1f, 0.12f); // Match renderer clear color
+    if (m_uniforms.fogEnabled >= 0)
+        glUniform1i(m_uniforms.fogEnabled, m_fogEnabled ? 1 : 0);
+    if (m_uniforms.fogColor >= 0)
+        glUniform3fv(m_uniforms.fogColor, 1, glm::value_ptr(m_fogColor));
+    if (m_uniforms.fogDensity >= 0)
+        glUniform1f(m_uniforms.fogDensity, m_fogDensity);
+    if (m_uniforms.fogDesaturationStrength >= 0)
+        glUniform1f(m_uniforms.fogDesaturationStrength, m_fogDesaturationStrength);
+    if (m_uniforms.fogAbsorptionDensity >= 0)
+        glUniform1f(m_uniforms.fogAbsorptionDensity, m_fogAbsorptionDensity);
+    if (m_uniforms.fogAbsorptionStrength >= 0)
+        glUniform1f(m_uniforms.fogAbsorptionStrength, m_fogAbsorptionStrength);
+    if (m_uniforms.backgroundColor >= 0)
+        glUniform3f(m_uniforms.backgroundColor, 0.08f, 0.1f, 0.12f);
 
-    // Render each visible instance
+    // Render each visible entity via ECS
+    auto& registry = ECSWorld::getRegistry();
     int renderedCount = 0;
+    int skippedNotVisible = 0;
+    int skippedNoModel = 0;
 
-    for (size_t i = 0; i < m_instances.size(); ++i)
-    {
-        const auto &instance = m_instances[i];
+    registry.each<ecs::TransformComponent, ecs::RenderableComponent, ModelRefComponent>(
+        [&](ecs::Entity entity, ecs::TransformComponent& transformComp,
+            ecs::RenderableComponent& renderable, ModelRefComponent& modelRef) {
+            if (!modelRef.model)
+            {
+                skippedNoModel++;
+                return;
+            }
+            if (!renderable.visible)
+            {
+                skippedNotVisible++;
+                return;
+            }
 
-        if (!instance.isVisible || !instance.model)
-        {
-            continue;
-        }
+            modelRef.model->setTransform(transformComp.modelMatrix);
+            modelRef.model->render(view, projection, cameraPos, lightDir, lightColor, shaderProgram);
+            renderedCount++;
+        });
 
-        // Set instance transform
-        instance.model->setTransform(instance.transform);
-
-        // Render the model
-        instance.model->render(view, projection, cameraPos, lightDir, lightColor, shaderProgram);
-        renderedCount++;
+    // Debug: print render stats once per second
+    static float lastDebugTime = 0.0f;
+    static int frameCount = 0;
+    frameCount++;
+    if (frameCount % 60 == 0) {
+        std::cout << "[ModelManager] Render stats: rendered=" << renderedCount
+                  << ", skippedNotVisible=" << skippedNotVisible
+                  << ", skippedNoModel=" << skippedNoModel
+                  << ", totalEntities=" << m_instanceEntities.size() << std::endl;
     }
 
-    // Only log if there's an issue
-    if (renderedCount == 0 && !m_instances.empty())
+    if (renderedCount == 0 && !m_instanceEntities.empty())
     {
-        std::cout << "WARNING: No model instances rendered despite having " << m_instances.size() << " instances" << std::endl;
+        static int warnCount = 0;
+        if (++warnCount <= 3) {
+            std::cout << "[ModelManager] WARNING: No instances rendered despite having "
+                      << m_instanceEntities.size() << " instances" << std::endl;
+        }
     }
 
     glUseProgram(0);
@@ -338,26 +358,32 @@ void ModelManager::render(const glm::mat4 &view, const glm::mat4 &projection,
 size_t ModelManager::getTotalVertexCount() const
 {
     size_t total = 0;
-    for (const auto &instance : m_instances)
-    {
-        if (instance.model)
-        {
-            total += instance.model->getVertexCount();
-        }
-    }
+    auto& registry = ECSWorld::getRegistry();
+
+    registry.each<ecs::RenderableComponent, ModelRefComponent>(
+        [&](ecs::RenderableComponent& renderable, ModelRefComponent& modelRef) {
+            if (modelRef.model)
+            {
+                total += modelRef.model->getVertexCount();
+            }
+        });
+
     return total;
 }
 
 size_t ModelManager::getTotalTriangleCount() const
 {
     size_t total = 0;
-    for (const auto &instance : m_instances)
-    {
-        if (instance.model)
-        {
-            total += instance.model->getTriangleCount();
-        }
-    }
+    auto& registry = ECSWorld::getRegistry();
+
+    registry.each<ecs::RenderableComponent, ModelRefComponent>(
+        [&](ecs::RenderableComponent& renderable, ModelRefComponent& modelRef) {
+            if (modelRef.model)
+            {
+                total += modelRef.model->getTriangleCount();
+            }
+        });
+
     return total;
 }
 
@@ -365,7 +391,7 @@ void ModelManager::printStats() const
 {
     std::cout << "\n=== MODEL MANAGER STATS ===" << std::endl;
     std::cout << "Loaded Models: " << m_models.size() << std::endl;
-    std::cout << "Active Instances: " << m_instances.size() << std::endl;
+    std::cout << "Active Instances: " << m_instanceEntities.size() << std::endl;
     std::cout << "Total Vertices: " << getTotalVertexCount() << std::endl;
     std::cout << "Total Triangles: " << getTotalTriangleCount() << std::endl;
 
@@ -388,4 +414,31 @@ int ModelManager::findModelIndex(const std::string &name)
         }
     }
     return -1;
+}
+
+// =========== ECS Implementation ===========
+
+ecs::Entity ModelManager::createModelInstanceEntity(GLTFModel* model, const glm::mat4& transform)
+{
+    auto& registry = ECSWorld::getRegistry();
+    ecs::Entity entity = registry.create();
+
+    // Add TransformComponent with the model matrix
+    auto& transformComp = registry.add<ecs::TransformComponent>(entity);
+    transformComp.position = glm::vec3(transform[3]);
+    transformComp.modelMatrix = transform;
+    transformComp.dirty = false;
+
+    // Add RenderableComponent
+    auto& renderable = registry.add<ecs::RenderableComponent>(entity);
+    renderable.type = ecs::RenderableType::GLTF_MODEL;
+    renderable.visible = true;
+    renderable.castShadow = true;
+    renderable.receiveShadow = true;
+
+    // Add custom ModelRefComponent for linking to GLTFModel
+    auto& modelRef = registry.add<ModelRefComponent>(entity);
+    modelRef.model = model;
+
+    return entity;
 }

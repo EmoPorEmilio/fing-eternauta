@@ -2,6 +2,7 @@
 
 #include <glad/glad.h>
 #include <string>
+#include <unordered_map>
 #include <glm/glm.hpp>
 
 class Shader
@@ -23,11 +24,15 @@ public:
     void setUniform(const std::string &name, const glm::vec2 &value) const;
     void setUniform(const std::string &name, const glm::vec3 &value) const;
     void setUniform(const std::string &name, const glm::mat4 &value) const;
+    void setUniform(const std::string &name, bool value) const;
 
     GLuint getProgram() const { return programID; }
 
 private:
     GLuint programID;
+
+    // Cache uniform locations to avoid glGetUniformLocation calls every frame
+    mutable std::unordered_map<std::string, GLint> m_uniformCache;
 
     std::string loadShaderText(const std::string &fileName);
     GLuint compileShader(GLenum type, const char *src);

@@ -1,12 +1,44 @@
+/**
+ * @file Application.h
+ * @brief Main application class - entry point and orchestration layer
+ *
+ * Application manages the main loop, initialization sequence, and coordinates
+ * all subsystems (Renderer, Scene, Camera, LightManager, UI).
+ *
+ * Lifecycle:
+ *   Application::initialize() -> Application::run() -> Application::cleanup()
+ *
+ * Main Loop (in run()):
+ *   1. handleEvents() - SDL event processing via InputManager
+ *   2. update(deltaTime) - Camera movement, scene update, flashlight sync
+ *   3. render() - ImGui UI + scene rendering
+ *
+ * UI State:
+ *   Holds all ImGui-controlled variables (ui* prefixed) that are applied to
+ *   scene/managers each frame. Consider migrating to ConfigManager for
+ *   centralized control.
+ *
+ * Event Subscriptions:
+ *   - KeyPressedEvent: Keyboard shortcuts (L=flashlight, Tab=UI, Esc=cursor)
+ *   - WindowResizedEvent: Viewport updates
+ *   - WindowClosedEvent: Graceful shutdown
+ *   - CameraLookRequestEvent: Mouse look when cursor captured
+ *
+ * @see Renderer, Camera, EmptyScene, LightManager, UIManager
+ */
 #pragma once
 
 #include <SDL.h>
 #include "Renderer.h"
 #include "Camera.h"
-#include "Scene.h"
+#include "EmptyScene.h"
+#include "DemoScene.h"
 #include "LightManager.h"
 #include "AssetManager.h"
 #include "Constants.h"
+#include "InputManager.h"
+#include "UIManager.h"
+#include "events/Events.h"
 #include "libraries/imgui/imgui.h"
 #include "libraries/imgui/imgui_impl_sdl2.h"
 #include "libraries/imgui/imgui_impl_opengl3.h"
@@ -32,7 +64,10 @@ public:
 private:
     Renderer renderer;
     Camera camera;
-    Scene scene;
+    EmptyScene emptyScene;
+    DemoScene demoScene;
+    IScene* activeScene = nullptr;  // Points to current scene
+    int currentSceneIndex = 1;      // 0=Empty, 1=Demo (default to Demo)
     LightManager lightManager;
 
     bool running;
@@ -45,6 +80,7 @@ private:
     void handleEvents();
     void update(float deltaTime);
     void render();
+    void switchScene(int sceneIndex);  // 0=Empty, 1=Demo
 
     // Key debouncing helper
     bool isKeyPressed(KeyState &keyState, bool currentlyPressed, float currentTime);
@@ -61,9 +97,14 @@ private:
     void renderSystemTab();
 
     // UI state
-    bool uiOpen = false;
-    bool cursorCaptured = true;
+    bool uiOpen = true;  // UI visible by default
+    bool cursorCaptured = false;  // Start with cursor free for UI
     bool imguiInitialized = false;
+
+    // Sidebar panel state
+    enum class Panel { None, Camera, Objects, Materials, Lights, Viewport, System };
+    Panel activePanel = Panel::None;
+    float sidebarWidth = 320.0f;
     // Tunables
     float uiAmbient = 0.2f;
     float uiSpecularStrength = 0.5f;
@@ -127,10 +168,36 @@ private:
     bool wasCPressed = false;
 
     // Overlay UI
+    bool uiOverlayEnabled = false;  // Snow overlay disabled by default
     float uiOverlaySnowSpeed = 8.0f; // multiplier (1.0 = original)
     bool uiOverlayMotionBlur = true;
     float uiOverlayTrailPersistence = 5.55f; // higher = longer trails (decay per sec)
     float uiOverlayDirectionDeg = 162.0f;    // default fall direction
     float uiOverlayTrailGain = 3.0f;         // brighten accumulated result
     float uiOverlayAdvectionScale = 3.25f;   // UV/sec scale for advection
+
+    // Viewport UI (Blender-style debug visualization)
+    bool uiShowGrid = true;
+    bool uiShowAxes = true;
+    bool uiShowGizmo = true;
+    bool uiShowInfoOverlay = true;
+    float uiGridScale = 1.0f;           // Grid cell size in meters
+    float uiGridFadeDistance = 150.0f;  // Distance at which grid fades
+    int uiFloorMode = 0;                // 0=Grid, 1=Textured, 2=Both
+
+    // Viewport tab render function
+    void renderViewportTab();
+
+    // Event handling
+    void subscribeToEvents();
+    void unsubscribeFromEvents();
+    void onKeyPressed(const events::KeyPressedEvent& event);
+    void onWindowResized(const events::WindowResizedEvent& event);
+    void onWindowClosed(const events::WindowClosedEvent& event);
+    void onCameraLookRequest(const events::CameraLookRequestEvent& event);
+
+    events::SubscriptionId m_keyPressedSub = 0;
+    events::SubscriptionId m_windowResizedSub = 0;
+    events::SubscriptionId m_windowClosedSub = 0;
+    events::SubscriptionId m_cameraLookSub = 0;
 };

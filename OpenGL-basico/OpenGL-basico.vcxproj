@@ -55,6 +55,7 @@
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..\libraries\glad;..\libraries\glm;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -71,6 +72,7 @@
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..\libraries\glad;..\libraries\glm;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -106,9 +108,17 @@
     <ClCompile Include="..\Prism.cpp" />
     <ClCompile Include="..\Renderer.cpp" />
     <ClCompile Include="..\Scene.cpp" />
+    <ClCompile Include="..\BaseScene.cpp" />
+    <ClCompile Include="..\DemoScene.cpp" />
+    <ClCompile Include="..\EmptyScene.cpp" />
+    <ClCompile Include="..\DebugRenderer.cpp" />
     <ClCompile Include="..\Shader.cpp" />
     <ClCompile Include="..\SnowSystem.cpp" />
     <ClCompile Include="..\Texture.cpp" />
+    <ClCompile Include="..\ECSWorld.cpp" />
+    <ClCompile Include="..\ConfigManager.cpp" />
+    <ClCompile Include="..\InputManager.cpp" />
+    <ClCompile Include="..\UIManager.cpp" />
     <ClCompile Include="..\libraries\tinygltf\tiny_gltf.cc" />
   </ItemGroup>
   <ItemGroup>
@@ -123,9 +133,53 @@
     <ClInclude Include="..\Prism.h" />
     <ClInclude Include="..\Renderer.h" />
     <ClInclude Include="..\Scene.h" />
+    <ClInclude Include="..\IScene.h" />
+    <ClInclude Include="..\BaseScene.h" />
+    <ClInclude Include="..\DemoScene.h" />
+    <ClInclude Include="..\EmptyScene.h" />
+    <ClInclude Include="..\DebugRenderer.h" />
     <ClInclude Include="..\Shader.h" />
     <ClInclude Include="..\SnowSystem.h" />
     <ClInclude Include="..\Texture.h" />
+    <ClInclude Include="..\ECSWorld.h" />
+    <ClInclude Include="..\ConfigManager.h" />
+    <ClInclude Include="..\InputManager.h" />
+    <ClInclude Include="..\UIManager.h" />
+    <!-- Events -->
+    <ClInclude Include="..\events\Event.h" />
+    <ClInclude Include="..\events\EventBus.h" />
+    <ClInclude Include="..\events\Events.h" />
+    <ClInclude Include="..\events\WindowEvents.h" />
+    <ClInclude Include="..\events\InputEvents.h" />
+    <ClInclude Include="..\events\ConfigEvents.h" />
+    <ClInclude Include="..\events\SystemEvents.h" />
+    <!-- ECS Core -->
+    <ClInclude Include="..\ecs\Entity.h" />
+    <ClInclude Include="..\ecs\ComponentPool.h" />
+    <ClInclude Include="..\ecs\Registry.h" />
+    <ClInclude Include="..\ecs\System.h" />
+    <ClInclude Include="..\ecs\ComponentTypes.h" />
+    <!-- Components -->
+    <ClInclude Include="..\components\TransformComponent.h" />
+    <ClInclude Include="..\components\RenderableComponent.h" />
+    <ClInclude Include="..\components\LODComponent.h" />
+    <ClInclude Include="..\components\BatchGroupComponent.h" />
+    <ClInclude Include="..\components\AnimationComponent.h" />
+    <ClInclude Include="..\components\MaterialComponent.h" />
+    <ClInclude Include="..\components\LightComponent.h" />
+    <ClInclude Include="..\components\ParticleComponent.h" />
+    <ClInclude Include="..\components\PhysicsComponent.h" />
+    <ClInclude Include="..\components\CameraComponent.h" />
+    <!-- Systems -->
+    <ClInclude Include="..\systems\TransformSystem.h" />
+    <ClInclude Include="..\systems\LODSystem.h" />
+    <ClInclude Include="..\systems\CullingSystem.h" />
+    <ClInclude Include="..\systems\AnimationSystem.h" />
+    <ClInclude Include="..\systems\CameraSystem.h" />
+    <ClInclude Include="..\systems\PhysicsSystem.h" />
+    <ClInclude Include="..\systems\ParticleSystem.h" />
+    <ClInclude Include="..\systems\LightSystem.h" />
+    <ClInclude Include="..\systems\RenderSystem.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\shaders\phong.vert">
@@ -183,6 +237,18 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Include="..\shaders\shadertoy_overlay.frag">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\debug_grid.vert">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\debug_grid.frag">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\debug_line.vert">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\debug_line.frag">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Include="..\assets\modelo_fing.glb">

@@ -87,13 +87,16 @@ vec3 F_Schlick(vec3 F0, float HoV) {
 }
 
 void main() {
+    // glTF uses top-left UV origin, OpenGL uses bottom-left - flip V coordinate
+    vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
+
     vec3 N = normalize(vNormal);
     // Normal mapping if available
     if (uHasNormalTexture) {
         // Build TBN from interpolated attributes (T in attribute 4 with w sign)
         // Tangent attribute not passed here; for correctness we would need TBN per-vertex.
         // As a minimal path, perturb by sampling normal map and assuming N is reasonably correct.
-        vec3 nTex = texture(uNormalTexture, vUV).xyz * 2.0 - 1.0;
+        vec3 nTex = texture(uNormalTexture, uv).xyz * 2.0 - 1.0;
         nTex.xy *= uNormalScale;
         // Fallback: blend toward geometric normal when tangent not bound
         N = normalize(mix(N, nTex, 0.0));
@@ -110,7 +113,7 @@ void main() {
     // Base color
     vec4 base = uBaseColorFactor;
     if (uHasBaseColorTexture) {
-        vec3 tex = texture(uBaseColorTexture, vUV).rgb; // sampled linear due to sRGB texture
+        vec3 tex = texture(uBaseColorTexture, uv).rgb; // sampled linear due to sRGB texture
         base.rgb *= tex;
     }
     vec3 albedo = base.rgb;
@@ -118,9 +121,9 @@ void main() {
     // Metallic and roughness
     float metallic = saturate(uMetallicFactor);
     float roughness = clamp(uRoughnessFactor, 0.04, 1.0);
-    
+
     if (uHasMetallicRoughnessTexture) {
-        vec3 mr = texture(uMetallicRoughnessTexture, vUV).rgb;
+        vec3 mr = texture(uMetallicRoughnessTexture, uv).rgb;
         roughness = clamp(mr.g, 0.04, 1.0);
         metallic = saturate(mr.b);
     }
@@ -142,10 +145,11 @@ void main() {
     // Ambient occlusion
     float ao = 1.0;
     if (uHasOcclusionTexture) {
-        ao = mix(1.0, texture(uOcclusionTexture, vUV).r, uOcclusionStrength);
+        ao = mix(1.0, texture(uOcclusionTexture, uv).r, uOcclusionStrength);
     }
     
-    vec3 ambient = 0.03 * albedo * ao;
+    // Higher ambient for better visibility (0.3 instead of 0.03)
+    vec3 ambient = 0.3 * albedo * ao;
     vec3 color = ambient + Lo;
     
     // Add flashlight lighting if enabled (UBO or legacy uniforms)

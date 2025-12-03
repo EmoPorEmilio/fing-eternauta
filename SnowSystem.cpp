@@ -1,4 +1,5 @@
 #include "SnowSystem.h"
+#include "ECSWorld.h"
 #include "Shader.h"
 #include <iostream>
 #include <algorithm>
@@ -9,7 +10,7 @@
 #include <bullet/btBulletDynamicsCommon.h>
 
 SnowSystem::SnowSystem()
-    : m_enabled(true), m_initialized(false), m_count(30000), m_fallSpeed(10.0f), m_windSpeed(5.0f), m_windDirection(glm::radians(180.0f)), m_spriteSize(0.05f), m_timeScale(1.0f), m_accumulatedTime(0.0f), m_spawnHeight(50.0f), m_spawnRadius(100.0f), m_floorY(0.0f), m_frustumCulling(true), m_visibleCount(0), m_drawCount(0), m_fogEnabled(true), m_fogColor(0.0f, 0.0f, 0.0f), m_fogDensity(0.01f), m_fogDesaturationStrength(1.0f), m_fogAbsorptionDensity(0.02f), m_fogAbsorptionStrength(0.8f), m_quadVAO(0), m_quadVBO(0), m_instanceVBO(0), m_puffVAO(0), m_puffInstanceVBO(0), m_shader(nullptr), m_rng(std::random_device{}()), m_uniformDist(0.0f, 1.0f)
+    : m_enabled(true), m_initialized(false), m_count(30000), m_fallSpeed(10.0f), m_windSpeed(5.0f), m_windDirection(glm::radians(180.0f)), m_spriteSize(0.05f), m_timeScale(1.0f), m_accumulatedTime(0.0f), m_spawnHeight(50.0f), m_spawnRadius(100.0f), m_floorY(0.0f), m_frustumCulling(true), m_visibleCount(0), m_fogEnabled(true), m_fogColor(0.0f, 0.0f, 0.0f), m_fogDensity(0.01f), m_fogDesaturationStrength(1.0f), m_fogAbsorptionDensity(0.02f), m_fogAbsorptionStrength(0.8f), m_quadVAO(0), m_quadVBO(0), m_instanceVBO(0), m_puffVAO(0), m_puffInstanceVBO(0), m_shader(nullptr), m_rng(std::random_device{}()), m_uniformDist(0.0f, 1.0f)
 {
     // Bullet members
     m_bulletEnabled = false;
@@ -97,14 +98,9 @@ bool SnowSystem::initialize()
     glVertexAttribDivisor(1, 1);
     glBindVertexArray(0);
 
-    // Initialize snowflakes with randomized positions to avoid vertical columns
-    m_snowflakes.resize(m_count);
-    for (int i = 0; i < m_count; ++i)
-    {
-        respawnFlake(i);
-    }
-
-    updateBuffers();
+    // Create snowflake entities via ECS
+    createSnowflakeEntities();
+    m_instanceData.reserve(m_count * 4);
 
     m_initialized = true;
     std::cout << "[SnowSystem] Initialized successfully!" << std::endl;
@@ -121,6 +117,19 @@ void SnowSystem::shutdown()
     {
         return;
     }
+
+    // Destroy entities in global ECS registry
+    auto& registry = ECSWorld::getRegistry();
+    for (auto entity : m_entities)
+    {
+        if (registry.isValid(entity))
+        {
+            registry.destroy(entity);
+        }
+    }
+    m_entities.clear();
+    m_instanceData.clear();
+    m_visibleCount = 0;
 
     // Shutdown Bullet if active
     shutdownBullet();
@@ -176,96 +185,164 @@ void SnowSystem::update(float deltaTime, const glm::vec3 &cameraPos, const glm::
         0.0f,
         glm::sin(m_windDirection));
 
-    // Update each snowflake
-    for (int i = 0; i < m_count; ++i)
-    {
-        Snowflake &flake = m_snowflakes[i];
+    // Update each snowflake entity via ECS
+    auto& registry = ECSWorld::getRegistry();
+    registry.each<ecs::TransformComponent, ecs::ParticleComponent>(
+        [this, deltaTime, &windDir, &registry](ecs::Entity entity, ecs::TransformComponent& transform, ecs::ParticleComponent& particle) {
+            if (!particle.alive) return;
 
-        // Store previous position for motion blur (future use)
-        flake.prevPosition = flake.position;
+            // Store previous position for motion blur
+            particle.prevPosition = transform.position;
 
-        // Apply gravity and wind
-        glm::vec3 velocity = glm::vec3(0.0f, -flake.fallSpeed * m_fallSpeed, 0.0f);
-        velocity += windDir * m_windSpeed * (0.5f + 0.5f * flake.seed); // Wind variation per flake
-
-        // Add some sway based on position and time
-        float sway = glm::sin(flake.position.x * 0.1f + m_accumulatedTime * 2.0f) * 0.1f;
-        velocity.x += sway * (0.3f + 0.7f * flake.seed);
-
-        // If flake is settled, count down and then respawn
-        if (flake.settled)
-        {
-            flake.settleTimer -= deltaTime;
-            if (flake.settleTimer <= 0.0f)
+            // If flake is settled, count down and then respawn
+            if (particle.settled)
             {
-                respawnFlake(i);
+                particle.settleTimer -= deltaTime;
+                if (particle.settleTimer <= 0.0f)
+                {
+                    // Respawn the particle
+                    transform.position = glm::vec3(
+                        (m_uniformDist(m_rng) - 0.5f) * m_spawnRadius * 2.0f,
+                        m_spawnHeight + m_uniformDist(m_rng) * 20.0f,
+                        (m_uniformDist(m_rng) - 0.5f) * m_spawnRadius * 2.0f
+                    );
+                    particle.prevPosition = transform.position;
+                    particle.seed = m_uniformDist(m_rng);
+                    particle.fallSpeed = 0.5f + m_uniformDist(m_rng) * 1.5f;
+                    particle.settled = false;
+                    particle.settleTimer = 0.0f;
+                    transform.dirty = true;
+                }
+                return;
             }
-            continue;
-        }
 
-        glm::vec3 nextPosition = flake.position + velocity * deltaTime;
+            // Apply gravity and wind
+            glm::vec3 velocity = glm::vec3(0.0f, -particle.fallSpeed * m_fallSpeed, 0.0f);
+            velocity += windDir * m_windSpeed * (0.5f + 0.5f * particle.seed);
 
-        if (m_bulletEnabled && m_bulletWorld)
-        {
-            // Raycast from previous to next to detect ground hit
-            btVector3 from(flake.prevPosition.x, flake.prevPosition.y, flake.prevPosition.z);
-            btVector3 to(nextPosition.x, nextPosition.y, nextPosition.z);
-            btCollisionWorld::ClosestRayResultCallback cb(from, to);
-            m_bulletWorld->rayTest(from, to, cb);
-            if (cb.hasHit())
+            // Add sway based on position and time
+            float sway = glm::sin(transform.position.x * 0.1f + m_accumulatedTime * 2.0f) * 0.1f;
+            velocity.x += sway * (0.3f + 0.7f * particle.seed);
+
+            glm::vec3 nextPosition = transform.position + velocity * deltaTime;
+
+            if (m_bulletEnabled && m_bulletWorld)
             {
-                // Place at hit point (slightly above) and respawn up top to keep density
-                btVector3 hit = cb.m_hitPointWorld;
-                flake.position = glm::vec3(nextPosition.x, static_cast<float>(hit.getY()) + 0.002f, nextPosition.z);
-                // Enter settled state briefly and spawn a puff
-                flake.settled = true;
-                flake.settleTimer = m_settleDuration;
-                m_puffs.push_back({flake.position, 0.0f, m_puffLifetime});
+                // Raycast from previous to next to detect ground hit
+                btVector3 from(particle.prevPosition.x, particle.prevPosition.y, particle.prevPosition.z);
+                btVector3 to(nextPosition.x, nextPosition.y, nextPosition.z);
+                btCollisionWorld::ClosestRayResultCallback cb(from, to);
+                m_bulletWorld->rayTest(from, to, cb);
+                if (cb.hasHit())
+                {
+                    btVector3 hit = cb.m_hitPointWorld;
+                    transform.position = glm::vec3(nextPosition.x, static_cast<float>(hit.getY()) + 0.002f, nextPosition.z);
+                    particle.settled = true;
+                    particle.settleTimer = m_settleDuration;
+                    m_puffs.push_back({transform.position, 0.0f, m_puffLifetime});
+                }
+                else
+                {
+                    transform.position = nextPosition;
+                    if (transform.position.y < m_floorY)
+                    {
+                        transform.position.y = m_floorY + 0.002f;
+                        particle.settled = true;
+                        particle.settleTimer = m_settleDuration;
+                        m_puffs.push_back({transform.position, 0.0f, m_puffLifetime});
+                    }
+                }
             }
             else
             {
-                flake.position = nextPosition;
-                if (flake.position.y < m_floorY)
+                transform.position = nextPosition;
+                if (transform.position.y < m_floorY)
                 {
-                    // Fallback clamp/respawn if plane missed
-                    flake.position.y = m_floorY + 0.002f;
-                    flake.settled = true;
-                    flake.settleTimer = m_settleDuration;
-                    m_puffs.push_back({flake.position, 0.0f, m_puffLifetime});
+                    transform.position.y = m_floorY + 0.002f;
+                    particle.settled = true;
+                    particle.settleTimer = m_settleDuration;
+                    m_puffs.push_back({transform.position, 0.0f, m_puffLifetime});
                 }
             }
-        }
-        else
-        {
-            flake.position = nextPosition;
-            // Respawn if fallen below floor or NaN/Inf
-            if (flake.position.y < m_floorY)
-            {
-                flake.position.y = m_floorY + 0.002f;
-                flake.settled = true;
-                flake.settleTimer = m_settleDuration;
-                m_puffs.push_back({flake.position, 0.0f, m_puffLifetime});
-            }
-        }
-    }
 
-    // Perform frustum culling if enabled
+            transform.dirty = true;
+        });
+
+    // Perform frustum culling and gather visible snowflakes
     if (m_frustumCulling)
     {
         glm::mat4 viewProj = projectionMatrix * viewMatrix;
-        performFrustumCulling(viewProj);
+
+        // Extract frustum planes
+        const glm::vec4 row0(viewProj[0][0], viewProj[1][0], viewProj[2][0], viewProj[3][0]);
+        const glm::vec4 row1(viewProj[0][1], viewProj[1][1], viewProj[2][1], viewProj[3][1]);
+        const glm::vec4 row2(viewProj[0][2], viewProj[1][2], viewProj[2][2], viewProj[3][2]);
+        const glm::vec4 row3(viewProj[0][3], viewProj[1][3], viewProj[2][3], viewProj[3][3]);
+
+        glm::vec4 planes[6];
+        planes[0] = row3 + row0;  // Left
+        planes[1] = row3 - row0;  // Right
+        planes[2] = row3 + row1;  // Bottom
+        planes[3] = row3 - row1;  // Top
+        planes[4] = row3 + row2;  // Near
+        planes[5] = row3 - row2;  // Far
+
+        // Normalize planes
+        for (int i = 0; i < 6; ++i)
+        {
+            float length = glm::length(glm::vec3(planes[i]));
+            if (length > 0.0f)
+            {
+                planes[i] /= length;
+            }
+        }
+
+        // Cull and gather visible particles
+        m_instanceData.clear();
+        m_visibleCount = 0;
+
+        registry.each<ecs::TransformComponent, ecs::ParticleComponent, ecs::RenderableComponent>(
+            [this, &planes](ecs::Entity entity, ecs::TransformComponent& transform,
+                           ecs::ParticleComponent& particle, ecs::RenderableComponent& renderable) {
+                if (!particle.alive) {
+                    renderable.visible = false;
+                    return;
+                }
+
+                glm::vec4 pos = glm::vec4(transform.position, 1.0f);
+                bool visible = true;
+                for (int j = 0; j < 6; ++j)
+                {
+                    if (glm::dot(planes[j], pos) < 0.0f)
+                    {
+                        visible = false;
+                        break;
+                    }
+                }
+
+                renderable.visible = visible;
+                if (visible)
+                {
+                    m_instanceData.push_back(transform.position.x);
+                    m_instanceData.push_back(transform.position.y);
+                    m_instanceData.push_back(transform.position.z);
+                    m_instanceData.push_back(particle.seed);
+                    m_visibleCount++;
+                }
+            });
     }
     else
     {
-        m_visibleCount = m_count;
-        m_visibleIndices.resize(m_count);
-        for (int i = 0; i < m_count; ++i)
-        {
-            m_visibleIndices[i] = i;
-        }
+        // No culling - gather all particles
+        gatherSnowflakeData();
     }
 
-    updateBuffers();
+    // Upload to GPU
+    glBindBuffer(GL_ARRAY_BUFFER, m_instanceVBO);
+    glBufferData(GL_ARRAY_BUFFER, m_instanceData.size() * sizeof(float), m_instanceData.data(), GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    // Update puffs
     updatePuffs(deltaTime);
 }
 
@@ -394,44 +471,29 @@ void SnowSystem::setCount(int count)
     }
 
     m_count = count;
-    m_snowflakes.resize(m_count);
-
-    // Reinitialize snowflakes
-    for (int i = 0; i < m_count; ++i)
-    {
-        m_snowflakes[i].position = glm::vec3(0.0f, m_spawnHeight, 0.0f);
-        m_snowflakes[i].prevPosition = m_snowflakes[i].position;
-        m_snowflakes[i].seed = m_uniformDist(m_rng);
-        m_snowflakes[i].fallSpeed = 0.5f + m_uniformDist(m_rng) * 1.5f;
-    }
 
     if (m_initialized)
     {
-        updateBuffers();
+        // Destroy existing entities
+        auto& registry = ECSWorld::getRegistry();
+        for (auto entity : m_entities)
+        {
+            if (registry.isValid(entity))
+            {
+                registry.destroy(entity);
+            }
+        }
+        m_entities.clear();
+
+        // Recreate entities with new count
+        createSnowflakeEntities();
+        m_instanceData.reserve(m_count * 4);
     }
 }
 
-void SnowSystem::updateBuffers()
+void SnowSystem::setupBuffers()
 {
-    if (!m_initialized)
-    {
-        return;
-    }
-
-    // Update instance buffer with current positions and seeds (visible flakes only)
-    std::vector<float> instanceData(m_visibleCount * 4); // 3 for position + 1 for seed
-    for (int i = 0; i < m_visibleCount; ++i)
-    {
-        int flakeIndex = m_visibleIndices[i];
-        instanceData[i * 4 + 0] = m_snowflakes[flakeIndex].position.x;
-        instanceData[i * 4 + 1] = m_snowflakes[flakeIndex].position.y;
-        instanceData[i * 4 + 2] = m_snowflakes[flakeIndex].position.z;
-        instanceData[i * 4 + 3] = m_snowflakes[flakeIndex].seed;
-    }
-
-    glBindBuffer(GL_ARRAY_BUFFER, m_instanceVBO);
-    glBufferData(GL_ARRAY_BUFFER, instanceData.size() * sizeof(float), instanceData.data(), GL_DYNAMIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    // This method is now integrated into initialize()
 }
 
 void SnowSystem::updatePuffs(float deltaTime)
@@ -471,26 +533,6 @@ void SnowSystem::uploadPuffs()
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
-void SnowSystem::respawnFlake(int index)
-{
-    if (index < 0 || index >= m_count)
-    {
-        return;
-    }
-
-    Snowflake &flake = m_snowflakes[index];
-
-    // Respawn above camera with some randomness
-    flake.position = glm::vec3(
-        (m_uniformDist(m_rng) - 0.5f) * m_spawnRadius * 2.0f,
-        m_spawnHeight + m_uniformDist(m_rng) * 20.0f,
-        (m_uniformDist(m_rng) - 0.5f) * m_spawnRadius * 2.0f);
-
-    flake.prevPosition = flake.position;
-    flake.seed = m_uniformDist(m_rng);
-    flake.fallSpeed = 0.5f + m_uniformDist(m_rng) * 1.5f;
-}
-
 glm::vec3 SnowSystem::getRandomSpawnPosition(const glm::vec3 &cameraPos, const glm::mat4 &viewMatrix)
 {
     // Spawn in a circle around camera, above
@@ -501,60 +543,6 @@ glm::vec3 SnowSystem::getRandomSpawnPosition(const glm::vec3 &cameraPos, const g
         cameraPos.x + glm::cos(angle) * radius,
         cameraPos.y + m_spawnHeight + m_uniformDist(m_rng) * 20.0f,
         cameraPos.z + glm::sin(angle) * radius);
-}
-
-void SnowSystem::performFrustumCulling(const glm::mat4 &viewProj)
-{
-    m_visibleIndices.clear();
-    m_visibleCount = 0;
-
-    // Extract frustum planes from view-projection matrix (GLM is column-major)
-    // Build row vectors explicitly for readability
-    const glm::vec4 row0(viewProj[0][0], viewProj[1][0], viewProj[2][0], viewProj[3][0]);
-    const glm::vec4 row1(viewProj[0][1], viewProj[1][1], viewProj[2][1], viewProj[3][1]);
-    const glm::vec4 row2(viewProj[0][2], viewProj[1][2], viewProj[2][2], viewProj[3][2]);
-    const glm::vec4 row3(viewProj[0][3], viewProj[1][3], viewProj[2][3], viewProj[3][3]);
-
-    glm::vec4 planes[6];
-    planes[0] = row3 + row0; // Left
-    planes[1] = row3 - row0; // Right
-    planes[2] = row3 + row1; // Bottom
-    planes[3] = row3 - row1; // Top
-    planes[4] = row3 + row2; // Near
-    planes[5] = row3 - row2; // Far
-
-    // Normalize planes
-    for (int i = 0; i < 6; ++i)
-    {
-        float length = glm::length(glm::vec3(planes[i]));
-        if (length > 0.0f)
-        {
-            planes[i] /= length;
-        }
-    }
-
-    // Test each snowflake against frustum
-    for (int i = 0; i < m_count; ++i)
-    {
-        const Snowflake &flake = m_snowflakes[i];
-        glm::vec4 flakePos = glm::vec4(flake.position, 1.0f);
-
-        bool visible = true;
-        for (int j = 0; j < 6; ++j)
-        {
-            if (glm::dot(planes[j], flakePos) < 0.0f)
-            {
-                visible = false;
-                break;
-            }
-        }
-
-        if (visible)
-        {
-            m_visibleIndices.push_back(i);
-            m_visibleCount++;
-        }
-    }
 }
 
 void SnowSystem::initializeBullet()
@@ -612,4 +600,84 @@ void SnowSystem::shutdownBullet()
     delete m_bulletCollisionConfig;
     m_bulletCollisionConfig = nullptr;
     std::cout << "[SnowSystem][Bullet] World shutdown" << std::endl;
+}
+
+// =========== ECS Implementation ===========
+
+ecs::Entity SnowSystem::createSnowflakeEntity(const glm::vec3& position, float seed, float fallSpeed)
+{
+    auto& registry = ECSWorld::getRegistry();
+    ecs::Entity entity = registry.create();
+
+    // Add TransformComponent
+    auto& transform = registry.add<ecs::TransformComponent>(entity);
+    transform.position = position;
+    transform.scale = glm::vec3(1.0f);
+    transform.dirty = true;
+
+    // Add ParticleComponent configured for snow
+    auto& particle = registry.add<ecs::ParticleComponent>(entity);
+    particle.type = ecs::ParticleType::SNOW;
+    particle.velocity = glm::vec3(0.0f);
+    particle.fallSpeed = fallSpeed;
+    particle.seed = seed;
+    particle.alive = true;
+    particle.settled = false;
+    particle.settleTimer = 0.0f;
+    particle.prevPosition = position;
+    particle.lifetime = -1.0f;  // Infinite lifetime for snow (respawns)
+    particle.age = 0.0f;
+    particle.alpha = 0.8f;
+    particle.color = glm::vec4(1.0f);  // White color
+
+    // Add RenderableComponent
+    auto& renderable = registry.add<ecs::RenderableComponent>(entity);
+    renderable.type = ecs::RenderableType::PARTICLE;
+    renderable.visible = true;
+
+    return entity;
+}
+
+void SnowSystem::createSnowflakeEntities()
+{
+    std::cout << "[SnowSystem] Creating " << m_count << " snowflake entities..." << std::endl;
+
+    m_entities.clear();
+    m_entities.reserve(m_count);
+
+    for (int i = 0; i < m_count; ++i)
+    {
+        // Random spawn position
+        glm::vec3 position(
+            (m_uniformDist(m_rng) - 0.5f) * m_spawnRadius * 2.0f,
+            m_spawnHeight + m_uniformDist(m_rng) * 20.0f,
+            (m_uniformDist(m_rng) - 0.5f) * m_spawnRadius * 2.0f
+        );
+
+        float seed = m_uniformDist(m_rng);
+        float fallSpeed = 0.5f + m_uniformDist(m_rng) * 1.5f;
+
+        ecs::Entity entity = createSnowflakeEntity(position, seed, fallSpeed);
+        m_entities.push_back(entity);
+    }
+
+    std::cout << "[SnowSystem] Created " << m_entities.size() << " entities" << std::endl;
+}
+
+void SnowSystem::gatherSnowflakeData()
+{
+    m_instanceData.clear();
+    m_visibleCount = 0;
+
+    auto& registry = ECSWorld::getRegistry();
+    registry.each<ecs::TransformComponent, ecs::ParticleComponent>(
+        [this](ecs::Entity entity, ecs::TransformComponent& transform, ecs::ParticleComponent& particle) {
+            if (!particle.alive) return;
+
+            m_instanceData.push_back(transform.position.x);
+            m_instanceData.push_back(transform.position.y);
+            m_instanceData.push_back(transform.position.z);
+            m_instanceData.push_back(particle.seed);
+            m_visibleCount++;
+        });
 }

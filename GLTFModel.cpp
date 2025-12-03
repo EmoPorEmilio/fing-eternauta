@@ -2,6 +2,7 @@
 #include "tiny_gltf.h"
 #include <iostream>
 #include <algorithm>
+#include <functional>
 
 void DrawablePrimitive::cleanup()
 {
@@ -104,47 +105,45 @@ bool GLTFModel::loadGLB(const std::string &filepath)
         return false;
     }
 
-    // DEBUG: Print comprehensive GLTF model information
-    std::cout << "🔍 GLTF DEBUG: Model loaded successfully!" << std::endl;
-    std::cout << "🔍 GLTF DEBUG: Scenes: " << model.scenes.size() << std::endl;
-    std::cout << "🔍 GLTF DEBUG: Nodes: " << model.nodes.size() << std::endl;
-    std::cout << "🔍 GLTF DEBUG: Meshes: " << model.meshes.size() << std::endl;
-    std::cout << "🔍 GLTF DEBUG: Materials: " << model.materials.size() << std::endl;
-    std::cout << "🔍 GLTF DEBUG: Textures: " << model.textures.size() << std::endl;
-    std::cout << "🔍 GLTF DEBUG: Images: " << model.images.size() << std::endl;
-    std::cout << "🔍 GLTF DEBUG: Animations: " << model.animations.size() << std::endl;
-    std::cout << "🔍 GLTF DEBUG: Skins: " << model.skins.size() << std::endl;
+    // Print concise model summary
+    std::cout << "[GLTF] Loaded: " << model.nodes.size() << " nodes, "
+              << model.meshes.size() << " meshes, "
+              << model.skins.size() << " skins, "
+              << model.animations.size() << " animations" << std::endl;
 
-    // DEBUG: Print skin information
-    for (size_t i = 0; i < model.skins.size(); ++i)
-    {
-        const auto &skin = model.skins[i];
-        std::cout << "🔍 GLTF DEBUG: Skin " << i << " has " << skin.joints.size() << " joints" << std::endl;
-    }
-
-    // DEBUG: Print detailed mesh information
-    for (size_t i = 0; i < model.meshes.size(); ++i)
-    {
-        const auto &mesh = model.meshes[i];
-        std::cout << "🔍 GLTF DEBUG: Mesh " << i << " has " << mesh.primitives.size() << " primitives" << std::endl;
-        for (size_t j = 0; j < mesh.primitives.size(); ++j)
-        {
-            const auto &prim = mesh.primitives[j];
-            std::cout << "🔍 GLTF DEBUG:   Primitive " << j << " attributes: ";
-            for (const auto &attr : prim.attributes)
-            {
-                std::cout << attr.first << " ";
+    // DEBUG: Print full node hierarchy
+    std::cout << "[GLTF HIERARCHY]" << std::endl;
+    for (size_t i = 0; i < model.nodes.size(); ++i) {
+        const auto& node = model.nodes[i];
+        std::cout << "  Node " << i << ": \"" << node.name << "\"";
+        if (node.mesh >= 0) std::cout << " [MESH " << node.mesh << "]";
+        if (node.skin >= 0) std::cout << " [SKIN " << node.skin << "]";
+        if (!node.children.empty()) {
+            std::cout << " children=[";
+            for (size_t c = 0; c < node.children.size(); ++c) {
+                if (c > 0) std::cout << ",";
+                std::cout << node.children[c];
             }
-            std::cout << " (has skin: " << (prim.targets.empty() ? "no" : "yes") << ")" << std::endl;
+            std::cout << "]";
         }
+        // Print transform if not identity
+        if (!node.translation.empty() || !node.rotation.empty() || !node.scale.empty() || !node.matrix.empty()) {
+            std::cout << " HAS_TRANSFORM";
+            if (!node.translation.empty())
+                std::cout << " T=(" << node.translation[0] << "," << node.translation[1] << "," << node.translation[2] << ")";
+            if (!node.scale.empty() && (node.scale[0] != 1.0 || node.scale[1] != 1.0 || node.scale[2] != 1.0))
+                std::cout << " S=(" << node.scale[0] << "," << node.scale[1] << "," << node.scale[2] << ")";
+        }
+        std::cout << std::endl;
     }
-
-    // DEBUG: Print animation information
-    for (size_t i = 0; i < model.animations.size(); ++i)
-    {
-        const auto &anim = model.animations[i];
-        std::cout << "🔍 GLTF DEBUG: Animation " << i << " has " << anim.samplers.size() << " samplers, " << anim.channels.size() << " channels" << std::endl;
-        std::cout << "🔍 GLTF DEBUG: Animation duration: " << (anim.channels.empty() ? 0.0 : (anim.samplers.empty() ? 0.0 : model.accessors[anim.samplers[0].input].maxValues[0] - model.accessors[anim.samplers[0].input].minValues[0])) << "s" << std::endl;
+    // Print scene roots
+    if (!model.scenes.empty()) {
+        std::cout << "[GLTF] Scene 0 roots: ";
+        for (size_t i = 0; i < model.scenes[0].nodes.size(); ++i) {
+            if (i > 0) std::cout << ", ";
+            std::cout << model.scenes[0].nodes[i];
+        }
+        std::cout << std::endl;
     }
     // Record source directory for potential external texture lookup
     {
@@ -193,6 +192,32 @@ bool GLTFModel::loadGLB(const std::string &filepath)
     m_nodeBaseT.assign(model.nodes.size(), glm::vec3(0.0f));
     m_nodeBaseR.assign(model.nodes.size(), glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
     m_nodeBaseS.assign(model.nodes.size(), glm::vec3(1.0f));
+
+    // Build node hierarchy
+    m_nodeParents.assign(model.nodes.size(), -1);
+    m_nodeChildren.resize(model.nodes.size());
+    for (size_t i = 0; i < model.nodes.size(); ++i)
+    {
+        m_nodeChildren[i].clear();
+        for (int childIdx : model.nodes[i].children)
+        {
+            if (childIdx >= 0 && childIdx < (int)model.nodes.size())
+            {
+                m_nodeChildren[i].push_back(childIdx);
+                m_nodeParents[childIdx] = (int)i;
+            }
+        }
+    }
+    // Store scene roots
+    m_sceneRoots.clear();
+    if (!model.scenes.empty())
+    {
+        for (int rootIdx : model.scenes[0].nodes)
+        {
+            m_sceneRoots.push_back(rootIdx);
+        }
+    }
+
     auto getLocal = [&](int nodeIndex)
     {
         const auto &n = model.nodes[nodeIndex];
@@ -272,7 +297,6 @@ bool GLTFModel::loadGLB(const std::string &filepath)
     m_animations.clear();
     if (!model.animations.empty())
     {
-        std::cout << "🔍 ANIM DEBUG: Loading animation clip with " << model.animations[0].samplers.size() << " samplers and " << model.animations[0].channels.size() << " channels" << std::endl;
         const auto &anim = model.animations[0];
         AnimationClip clip;
         // Samplers
@@ -438,6 +462,38 @@ void GLTFModel::processPrimitive(const tinygltf::Model &model, const tinygltf::P
     size_t posStride = posBufferView.byteStride ? posBufferView.byteStride : 3 * sizeof(float);
 
     drawable.vertices.reserve(posAccessor.count * 3);
+
+    // Debug: Check first few raw vertex values for skinned meshes
+    if (skinIndex >= 0 && posAccessor.count > 0)
+    {
+        std::cout << "[VERTEX DEBUG] Skinned mesh raw data:" << std::endl;
+        std::cout << "  accessor.bufferView=" << posAccessor.bufferView
+                  << ", accessor.byteOffset=" << posAccessor.byteOffset
+                  << ", accessor.count=" << posAccessor.count << std::endl;
+        std::cout << "  bufferView.buffer=" << posBufferView.buffer
+                  << ", bufferView.byteOffset=" << posBufferView.byteOffset
+                  << ", bufferView.byteLength=" << posBufferView.byteLength
+                  << ", bufferView.byteStride=" << posBufferView.byteStride << std::endl;
+        std::cout << "  buffer.data.size()=" << posBuffer.data.size()
+                  << ", computed stride=" << posStride << std::endl;
+
+        // Print raw bytes at buffer start to see if there's data
+        size_t dataOffset = posBufferView.byteOffset + posAccessor.byteOffset;
+        std::cout << "  Data offset in buffer: " << dataOffset << std::endl;
+        std::cout << "  First 48 raw bytes: ";
+        for (size_t i = 0; i < std::min((size_t)48, posBuffer.data.size() - dataOffset); ++i)
+        {
+            printf("%02X ", posBuffer.data[dataOffset + i]);
+        }
+        std::cout << std::endl;
+
+        for (size_t i = 0; i < std::min((size_t)5, posAccessor.count); ++i)
+        {
+            const float *pos = reinterpret_cast<const float *>(posData + i * posStride);
+            printf("[VERTEX DEBUG] Raw vertex %zu: (%.8f, %.8f, %.8f)\n", i, pos[0], pos[1], pos[2]);
+        }
+    }
+
     for (size_t i = 0; i < posAccessor.count; ++i)
     {
         const float *pos = reinterpret_cast<const float *>(posData + i * posStride);
@@ -487,6 +543,13 @@ void GLTFModel::processPrimitive(const tinygltf::Model &model, const tinygltf::P
         }
     }
 
+    // Debug: Print all available attributes
+    std::cout << "[PRIMITIVE] Available attributes: ";
+    for (const auto& attr : primitive.attributes) {
+        std::cout << attr.first << " ";
+    }
+    std::cout << std::endl;
+
     // Process TEXCOORD_0 attribute
     auto texCoordIt = primitive.attributes.find("TEXCOORD_0");
     if (texCoordIt != primitive.attributes.end())
@@ -496,13 +559,36 @@ void GLTFModel::processPrimitive(const tinygltf::Model &model, const tinygltf::P
         const auto &texCoordBuffer = model.buffers[texCoordBufferView.buffer];
 
         const unsigned char *texCoordData = &texCoordBuffer.data[texCoordBufferView.byteOffset + texCoordAccessor.byteOffset];
-        size_t texCoordStride = texCoordBufferView.byteStride ? texCoordBufferView.byteStride : 2 * sizeof(float);
 
         drawable.uvs.reserve(texCoordAccessor.count * 2);
-        for (size_t i = 0; i < texCoordAccessor.count; ++i)
-        {
-            const float *uv = reinterpret_cast<const float *>(texCoordData + i * texCoordStride);
-            drawable.uvs.insert(drawable.uvs.end(), {uv[0], uv[1]});
+
+        if (texCoordAccessor.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT) {
+            size_t texCoordStride = texCoordBufferView.byteStride ? texCoordBufferView.byteStride : 2 * sizeof(float);
+            for (size_t i = 0; i < texCoordAccessor.count; ++i)
+            {
+                const float *uv = reinterpret_cast<const float *>(texCoordData + i * texCoordStride);
+                drawable.uvs.insert(drawable.uvs.end(), {uv[0], uv[1]});
+            }
+        } else if (texCoordAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
+            // Normalized unsigned short: 0-65535 maps to 0.0-1.0
+            size_t texCoordStride = texCoordBufferView.byteStride ? texCoordBufferView.byteStride : 2 * sizeof(unsigned short);
+            for (size_t i = 0; i < texCoordAccessor.count; ++i)
+            {
+                const unsigned short *uv = reinterpret_cast<const unsigned short *>(texCoordData + i * texCoordStride);
+                float u = static_cast<float>(uv[0]) / 65535.0f;
+                float v = static_cast<float>(uv[1]) / 65535.0f;
+                drawable.uvs.insert(drawable.uvs.end(), {u, v});
+            }
+        } else if (texCoordAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE) {
+            // Normalized unsigned byte: 0-255 maps to 0.0-1.0
+            size_t texCoordStride = texCoordBufferView.byteStride ? texCoordBufferView.byteStride : 2 * sizeof(unsigned char);
+            for (size_t i = 0; i < texCoordAccessor.count; ++i)
+            {
+                const unsigned char *uv = texCoordData + i * texCoordStride;
+                float u = static_cast<float>(uv[0]) / 255.0f;
+                float v = static_cast<float>(uv[1]) / 255.0f;
+                drawable.uvs.insert(drawable.uvs.end(), {u, v});
+            }
         }
     }
 
@@ -590,8 +676,6 @@ void GLTFModel::processPrimitive(const tinygltf::Model &model, const tinygltf::P
             drawable.jointIndices.resize(jAcc.count * 4);
             drawable.jointWeights.resize(wAcc.count * 4);
 
-            std::cout << "🔍 SKIN DEBUG: Processing joints and weights for " << jAcc.count << " vertices" << std::endl;
-            std::cout << "🔍 SKIN DEBUG: Joints component type: " << jAcc.componentType << ", Weights component type: " << wAcc.componentType << std::endl;
 
             for (size_t i = 0; i < jAcc.count; ++i)
             {
@@ -649,19 +733,6 @@ void GLTFModel::processPrimitive(const tinygltf::Model &model, const tinygltf::P
                     drawable.jointWeights[i * 4 + 3] /= s;
                 }
 
-                // Debug first few vertices
-                if (i < 3)
-                {
-                    std::cout << "🔍 SKIN DEBUG: Vertex " << i << " - Joints: ["
-                              << (int)drawable.jointIndices[i * 4 + 0] << ", "
-                              << (int)drawable.jointIndices[i * 4 + 1] << ", "
-                              << (int)drawable.jointIndices[i * 4 + 2] << ", "
-                              << (int)drawable.jointIndices[i * 4 + 3] << "], Weights: ["
-                              << drawable.jointWeights[i * 4 + 0] << ", "
-                              << drawable.jointWeights[i * 4 + 1] << ", "
-                              << drawable.jointWeights[i * 4 + 2] << ", "
-                              << drawable.jointWeights[i * 4 + 3] << "]" << std::endl;
-                }
             }
             drawable.skinIndex = skinIndex;
         }
@@ -670,7 +741,6 @@ void GLTFModel::processPrimitive(const tinygltf::Model &model, const tinygltf::P
     // Process material
     if (materialIndex >= 0 && materialIndex < model.materials.size())
     {
-        std::cout << "🔍 MATERIAL DEBUG: Processing material index " << materialIndex << std::endl;
         const auto &material = model.materials[materialIndex];
 
         // Base color factor - initialize with default first
@@ -687,17 +757,19 @@ void GLTFModel::processPrimitive(const tinygltf::Model &model, const tinygltf::P
         drawable.metallicFactor = static_cast<float>(material.pbrMetallicRoughness.metallicFactor);
         drawable.roughnessFactor = static_cast<float>(material.pbrMetallicRoughness.roughnessFactor);
 
-        std::cout << "🔍 MATERIAL DEBUG: Material properties - Metallic: " << drawable.metallicFactor
-                  << ", Roughness: " << drawable.roughnessFactor
-                  << ", BaseColor: (" << drawable.baseColorFactor.r << ", " << drawable.baseColorFactor.g << ", " << drawable.baseColorFactor.b << ", " << drawable.baseColorFactor.a << ")" << std::endl;
-
         // Base color texture
         if (material.pbrMetallicRoughness.baseColorTexture.index >= 0)
         {
             // Base color is sRGB
             drawable.baseColorTexture = loadTexture(model, material.pbrMetallicRoughness.baseColorTexture.index, true);
             drawable.hasBaseColorTexture = (drawable.baseColorTexture != 0);
-            std::cout << "🔍 MATERIAL DEBUG: Loaded base color texture: " << drawable.baseColorTexture << " (has texture: " << drawable.hasBaseColorTexture << ")" << std::endl;
+
+            // Debug: Check which texCoord set the material expects
+            int texCoordSet = material.pbrMetallicRoughness.baseColorTexture.texCoord;
+            std::cout << "[MATERIAL] Base color texture uses TEXCOORD_" << texCoordSet << std::endl;
+            if (texCoordSet != 0) {
+                std::cout << "[WARNING] Material expects TEXCOORD_" << texCoordSet << " but we only load TEXCOORD_0!" << std::endl;
+            }
         }
 
         // Metallic-roughness texture
@@ -723,12 +795,10 @@ void GLTFModel::processPrimitive(const tinygltf::Model &model, const tinygltf::P
             drawable.normalTexture = loadTexture(model, material.normalTexture.index, false); // linear
             drawable.hasNormalTexture = (drawable.normalTexture != 0);
             drawable.normalScale = material.normalTexture.scale > 0.0 ? (float)material.normalTexture.scale : 1.0f;
-            std::cout << "🔍 MATERIAL DEBUG: Loaded normal texture: " << drawable.normalTexture << " (has texture: " << drawable.hasNormalTexture << ", scale: " << drawable.normalScale << ")" << std::endl;
         }
     }
     else
     {
-        std::cout << "🔍 MATERIAL DEBUG: No material found for index " << materialIndex << " - using defaults" << std::endl;
         // Set default material properties
         drawable.baseColorFactor = glm::vec4(0.8f, 0.8f, 0.8f, 1.0f); // Light gray
         drawable.metallicFactor = 0.0f;
@@ -749,19 +819,46 @@ void GLTFModel::processPrimitive(const tinygltf::Model &model, const tinygltf::P
 GLuint GLTFModel::loadTexture(const tinygltf::Model &model, int textureIndex, bool srgb)
 {
     if (textureIndex < 0 || textureIndex >= model.textures.size())
-    {
-        std::cout << "🔍 TEXTURE DEBUG: Invalid texture index " << textureIndex << " (total textures: " << model.textures.size() << ")" << std::endl;
         return 0;
-    }
 
     const auto &texture = model.textures[textureIndex];
     if (texture.source < 0 || texture.source >= model.images.size())
-    {
-        std::cout << "🔍 TEXTURE DEBUG: Invalid texture source " << texture.source << " (total images: " << model.images.size() << ")" << std::endl;
         return 0;
-    }
 
     const auto &image = model.images[texture.source];
+
+    // Debug texture info
+    std::cout << "[TEXTURE] Loading texture " << textureIndex << ": "
+              << image.width << "x" << image.height << ", "
+              << image.component << " channels, "
+              << image.image.size() << " bytes" << std::endl;
+    if (!image.name.empty()) {
+        std::cout << "[TEXTURE] Name: " << image.name << std::endl;
+    }
+    if (!image.uri.empty()) {
+        std::cout << "[TEXTURE] URI: " << image.uri << std::endl;
+    }
+
+    // Get sampler info for wrap modes (default to REPEAT per glTF spec)
+    GLenum wrapS = GL_REPEAT;
+    GLenum wrapT = GL_REPEAT;
+    if (texture.sampler >= 0 && texture.sampler < (int)model.samplers.size()) {
+        const auto& sampler = model.samplers[texture.sampler];
+        // glTF wrap modes: 10497=REPEAT, 33071=CLAMP_TO_EDGE, 33648=MIRRORED_REPEAT
+        auto convertWrap = [](int gltfWrap) -> GLenum {
+            switch (gltfWrap) {
+                case 33071: return GL_CLAMP_TO_EDGE;
+                case 33648: return GL_MIRRORED_REPEAT;
+                case 10497:
+                default: return GL_REPEAT;
+            }
+        };
+        wrapS = convertWrap(sampler.wrapS);
+        wrapT = convertWrap(sampler.wrapT);
+        std::cout << "[TEXTURE] Sampler wrapS=" << sampler.wrapS << " wrapT=" << sampler.wrapT << std::endl;
+    } else {
+        std::cout << "[TEXTURE] No sampler, using default GL_REPEAT" << std::endl;
+    }
 
     GLuint texID;
     glGenTextures(1, &texID);
@@ -783,27 +880,18 @@ GLuint GLTFModel::loadTexture(const tinygltf::Model &model, int textureIndex, bo
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapS);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapT);
 
     glGenerateMipmap(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, 0);
-
-    std::cout << "🔍 TEXTURE DEBUG: Successfully loaded texture ID " << texID << " (" << image.width << "x" << image.height << ", " << image.component << " channels, sRGB: " << srgb << ")" << std::endl;
     return texID;
 }
 
 void GLTFModel::setupPrimitive(DrawablePrimitive &primitive)
 {
     if (primitive.isInitialized)
-    {
         return;
-    }
-
-    std::cout << "🔍 SKIN DEBUG: Setting up primitive with skin index: " << primitive.skinIndex << std::endl;
-    std::cout << "🔍 SKIN DEBUG: Primitive has " << primitive.vertices.size() / 3 << " vertices, "
-              << primitive.jointIndices.size() / 4 << " joint indices, "
-              << primitive.jointWeights.size() / 4 << " joint weights" << std::endl;
 
     // Generate OpenGL objects
     glGenVertexArrays(1, &primitive.vao);
@@ -861,7 +949,6 @@ void GLTFModel::setupPrimitive(DrawablePrimitive &primitive)
         glBufferData(GL_ARRAY_BUFFER, primitive.jointWeights.size() * sizeof(GLfloat), primitive.jointWeights.data(), GL_STATIC_DRAW);
         glEnableVertexAttribArray(5);
         glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
-        std::cout << "🔍 SKIN DEBUG: Set up weights buffer with " << primitive.jointWeights.size() << " elements" << std::endl;
     }
 
     // Joints buffer (uvec4) - convert from unsigned short to unsigned int for shader compatibility
@@ -880,7 +967,6 @@ void GLTFModel::setupPrimitive(DrawablePrimitive &primitive)
         glEnableVertexAttribArray(6);
         glVertexAttribIPointer(6, 4, GL_UNSIGNED_INT, 0, nullptr);
 
-        std::cout << "🔍 SKIN DEBUG: Set up joints buffer with " << jointIndicesInt.size() << " elements (converted from unsigned short to unsigned int)" << std::endl;
     }
 
     // Index buffer
@@ -904,14 +990,8 @@ void GLTFModel::calculateBounds()
 
     for (const auto &primitive : m_primitives)
     {
-        std::cout << "🔧 DEBUG: Primitive has " << primitive.vertices.size() << " vertex components" << std::endl;
-
-        // Check if this is a skinned primitive
         if (primitive.skinIndex >= 0)
-        {
             isSkinnedModel = true;
-            std::cout << "🔧 DEBUG: This is a SKINNED primitive - vertices are in mesh space" << std::endl;
-        }
 
         for (size_t i = 0; i < primitive.vertices.size(); i += 3)
         {
@@ -919,30 +999,21 @@ void GLTFModel::calculateBounds()
             {
                 glm::vec3 vertex(primitive.vertices[i], primitive.vertices[i + 1], primitive.vertices[i + 2]);
 
-                // For skinned models, vertices start at origin - use a reasonable default bounds
+                // For skinned models, vertices might be at origin - use default bounds
                 if (isSkinnedModel && glm::length(vertex) < 0.001f)
                 {
-                    // This is a skinned model with vertices at origin - use default character bounds
                     if (!foundVertices)
                     {
-                        m_minBounds = glm::vec3(-1.0f, 0.0f, -1.0f); // Typical character bounds
+                        m_minBounds = glm::vec3(-1.0f, 0.0f, -1.0f);
                         m_maxBounds = glm::vec3(1.0f, 2.0f, 1.0f);
                         foundVertices = true;
-                        std::cout << "🔧 DEBUG: Using default skinned model bounds: (-1,0,-1) to (1,2,1)" << std::endl;
                     }
                 }
                 else
                 {
-                    // Regular model with actual vertex positions
                     m_minBounds = glm::min(m_minBounds, vertex);
                     m_maxBounds = glm::max(m_maxBounds, vertex);
                     foundVertices = true;
-                }
-
-                // Debug: Print first few vertices
-                if (i < 9)
-                {
-                    std::cout << "🔧 DEBUG: Vertex " << (i / 3) << ": (" << vertex.x << ", " << vertex.y << ", " << vertex.z << ")" << std::endl;
                 }
             }
         }
@@ -950,7 +1021,6 @@ void GLTFModel::calculateBounds()
 
     if (!foundVertices)
     {
-        std::cout << "⚠️  WARNING: No vertices found for bounds calculation!" << std::endl;
         m_minBounds = glm::vec3(-1.0f, 0.0f, -1.0f);
         m_maxBounds = glm::vec3(1.0f, 2.0f, 1.0f);
     }
@@ -966,12 +1036,19 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
     }
 
     // If we have an animation clip, evaluate it and rebuild node globals
+    static int animCheckCount = 0;
+    if (++animCheckCount % 60 == 0) {
+        std::cout << "[ANIM CHECK] enabled=" << m_animEnabled << ", animations=" << m_animations.size() << ", time=" << m_animTime << std::endl;
+    }
     if (m_animEnabled && !m_animations.empty())
     {
-        static int animDebugCounter = 0;
-        if (++animDebugCounter % 60 == 0)
-        { // Debug every 60 frames
-            std::cout << "🔍 ANIM DEBUG: Animation enabled, time=" << m_animTime << ", duration=" << m_animations[0].duration << ", channels=" << m_animations[0].channels.size() << std::endl;
+        // Print animation status once per second
+        static float lastDebugTime = -1.0f;
+        if (m_animTime - lastDebugTime > 1.0f || m_animTime < lastDebugTime)
+        {
+            std::cout << "[ANIM] time=" << m_animTime << "/" << m_animations[0].duration
+                      << ", channels=" << m_animations[0].channels.size() << std::endl;
+            lastDebugTime = m_animTime;
         }
 
         float t = m_animTime;
@@ -1008,30 +1085,22 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
             locals[i] = glm::mat4(1.0f);
         }
 
-        // Apply animated channels
-        static int channelDebugCounter = 0;
-        if (channelDebugCounter % 60 == 0)
+        // Ensure m_nodeBaseT/R/S and hierarchy arrays are large enough for all animation target nodes
+        size_t requiredSize = static_cast<size_t>(maxTargetNode + 1);
+        if (m_nodeBaseT.size() < requiredSize)
         {
-            std::cout << "🔍 ANIM DEBUG: Locals array sized for " << (maxTargetNode + 1) << " nodes (original: " << m_nodeGlobalTransforms.size() << ")" << std::endl;
-        }
-        if (++channelDebugCounter % 60 == 0)
-        {
-            std::cout << "🔍 ANIM DEBUG: Processing " << clip.channels.size() << " animation channels at time " << t << std::endl;
+            m_nodeBaseT.resize(requiredSize, glm::vec3(0.0f));
+            m_nodeBaseR.resize(requiredSize, glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+            m_nodeBaseS.resize(requiredSize, glm::vec3(1.0f));
+            m_nodeParents.resize(requiredSize, -1);
+            m_nodeChildren.resize(requiredSize);
         }
 
-        int processedChannels = 0;
-        int skippedChannels = 0;
+        // Apply animated channels
         for (const auto &ch : clip.channels)
         {
             if (ch.targetNode < 0 || ch.targetNode >= (int)locals.size())
-            {
-                skippedChannels++;
-                if (channelDebugCounter % 60 == 0 && skippedChannels <= 5)
-                {
-                    std::cout << "🔍 ANIM DEBUG: Skipping channel - invalid target node " << ch.targetNode << " (locals.size=" << locals.size() << ")" << std::endl;
-                }
                 continue;
-            }
             const AnimSampler &samp = clip.samplers[ch.samplerIndex];
             if (samp.input.empty())
                 continue;
@@ -1064,14 +1133,8 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
                 glm::vec3 v0 = glm::vec3(samp.output[k1]);
                 glm::vec3 v1 = glm::vec3(samp.output[k2]);
                 glm::vec3 v = glm::mix(v0, v1, a);
-                // Rebuild TRS with animated component
                 glm::mat4 trs = glm::translate(glm::mat4(1.0f), v) * glm::mat4_cast(m_nodeBaseR[ch.targetNode]) * glm::scale(glm::mat4(1.0f), m_nodeBaseS[ch.targetNode]);
                 locals[ch.targetNode] = trs;
-                processedChannels++;
-                if (channelDebugCounter % 60 == 0 && processedChannels <= 3)
-                {
-                    std::cout << "🔍 ANIM DEBUG: Updated node " << ch.targetNode << " translation channel" << std::endl;
-                }
             }
             else if (ch.path == PATH_R)
             {
@@ -1080,11 +1143,6 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
                 glm::quat q = glm::slerp(q0, q1, a);
                 glm::mat4 trs = glm::translate(glm::mat4(1.0f), m_nodeBaseT[ch.targetNode]) * glm::mat4_cast(q) * glm::scale(glm::mat4(1.0f), m_nodeBaseS[ch.targetNode]);
                 locals[ch.targetNode] = trs;
-                processedChannels++;
-                if (channelDebugCounter % 60 == 0 && processedChannels <= 3)
-                {
-                    std::cout << "🔍 ANIM DEBUG: Updated node " << ch.targetNode << " rotation channel" << std::endl;
-                }
             }
             else // PATH_S
             {
@@ -1093,85 +1151,56 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
                 glm::vec3 s = glm::mix(s0, s1, a);
                 glm::mat4 trs = glm::translate(glm::mat4(1.0f), m_nodeBaseT[ch.targetNode]) * glm::mat4_cast(m_nodeBaseR[ch.targetNode]) * glm::scale(glm::mat4(1.0f), s);
                 locals[ch.targetNode] = trs;
-                processedChannels++;
-                if (channelDebugCounter % 60 == 0 && processedChannels <= 3)
-                {
-                    std::cout << "🔍 ANIM DEBUG: Updated node " << ch.targetNode << " scale channel" << std::endl;
-                }
             }
         }
-        // Rebuild global transforms from locals using scene 0 hierarchy (assumes unchanged topology)
+        // Rebuild global transforms from locals using the stored node hierarchy
         if (!locals.empty())
         {
-            std::cout << "🔍 ANIM DEBUG: Animation evaluation completed, updating " << locals.size() << " local transforms" << std::endl;
-            std::cout << "🔍 ANIM DEBUG: Processed " << processedChannels << " animation channels out of " << clip.channels.size() << " total" << std::endl;
-            std::cout << "🔍 ANIM DEBUG: Skipped " << skippedChannels << " channels due to invalid target nodes" << std::endl;
-
-            // CRITICAL FIX: Update globals with locals - expand global transforms array if needed
             // Ensure global transforms array is large enough
             if (m_nodeGlobalTransforms.size() < locals.size())
             {
                 m_nodeGlobalTransforms.resize(locals.size(), glm::mat4(1.0f));
-                std::cout << "🔍 ANIM DEBUG: Expanded global transforms array to " << locals.size() << " nodes" << std::endl;
             }
 
-            // CRITICAL FIX: For skinned models, we need to properly traverse the hierarchy!
-            // The previous approach was just overwriting globals with locals, breaking the skeleton.
-            // We need to build proper global transforms by traversing the node hierarchy.
+            // Proper DFS traversal using stored hierarchy
+            std::function<void(int, const glm::mat4&)> traverseHierarchy = [&](int nodeIdx, const glm::mat4& parentGlobal)
+            {
+                if (nodeIdx < 0 || nodeIdx >= (int)locals.size()) return;
 
-            // For now, let's use a simplified approach: assume the first node is the root
-            // and all other nodes are direct children of the root (this is often true for character models)
+                // Compute global transform: parent * local
+                glm::mat4 global = parentGlobal * locals[nodeIdx];
+                m_nodeGlobalTransforms[nodeIdx] = global;
+
+                // Traverse children
+                if (nodeIdx < (int)m_nodeChildren.size())
+                {
+                    for (int childIdx : m_nodeChildren[nodeIdx])
+                    {
+                        traverseHierarchy(childIdx, global);
+                    }
+                }
+            };
+
+            // Start DFS from scene roots
+            for (int rootIdx : m_sceneRoots)
+            {
+                traverseHierarchy(rootIdx, glm::mat4(1.0f));
+            }
+
+            // Handle any nodes not reachable from scene roots (orphaned but animated nodes)
             for (size_t i = 0; i < locals.size(); ++i)
             {
-                if (i == 0)
+                if (m_nodeParents.size() > i && m_nodeParents[i] == -1)
                 {
-                    // Root node: use local transform as global
-                    m_nodeGlobalTransforms[i] = locals[i];
-                }
-                else
-                {
-                    // Child nodes: multiply by root transform
-                    // This is a simplified approach - ideally we'd traverse the actual hierarchy
-                    m_nodeGlobalTransforms[i] = locals[0] * locals[i];
-                }
-
-                // Debug: Print first few transforms to see if they're changing
-                if (i < 3)
-                {
-                    std::cout << "🔍 ANIM DEBUG: Node " << i << " global transform updated (hierarchy-aware)" << std::endl;
-                }
-            }
-
-            // CRITICAL FIX: If animation only updated some nodes, we need to ensure all joint nodes get updated
-            // The issue is that animation channels might only target certain nodes, but we need all joint nodes to be animated
-            // For character models, often only the root or main nodes are animated, and child nodes should inherit the animation
-
-            // Check if we have any joint nodes that weren't updated by animation
-            // For now, let's assume that if node 26 is animated, it should affect all other joint nodes
-            // This is a simplified approach - ideally we'd traverse the actual skeleton hierarchy
-            if (locals.size() > 26 && processedChannels > 0)
-            {
-                // If node 26 was animated, apply a scaled version of its transform to other joint nodes
-                glm::mat4 node26Transform = locals[26];
-                glm::vec3 node26Translation = glm::vec3(node26Transform[3]);
-                glm::mat3 node26Rotation = glm::mat3(node26Transform);
-
-                // Apply scaled animation to other joint nodes
-                for (size_t i = 0; i < locals.size(); ++i)
-                {
-                    if (i != 26 && i < locals.size())
+                    bool isSceneRoot = false;
+                    for (int r : m_sceneRoots)
                     {
-                        // Apply a scaled version of the root animation to child joints
-                        float scale = 1.0f - (float)i / (float)locals.size() * 0.8f; // Reduce effect for higher-indexed joints
-                        glm::vec3 scaledTranslation = node26Translation * scale * 0.1f;
-                        glm::mat4 scaledTransform = glm::translate(glm::mat4(1.0f), scaledTranslation) * locals[i];
-                        locals[i] = scaledTransform;
-
-                        static int animDebugCounter2 = 0;
-                        if (++animDebugCounter2 % 60 == 0 && i < 3)
-                        {
-                            std::cout << "🔍 ANIM DEBUG: Applied scaled animation to joint node " << i << " (scale: " << scale << ")" << std::endl;
-                        }
+                        if (r == (int)i) { isSceneRoot = true; break; }
+                    }
+                    if (!isSceneRoot)
+                    {
+                        // Orphan node - use local as global
+                        m_nodeGlobalTransforms[i] = locals[i];
                     }
                 }
             }
@@ -1213,21 +1242,10 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
     if (locLightColor >= 0)
         glUniform3fv(locLightColor, 1, glm::value_ptr(lightColor));
 
-    // Prepare skinning uniforms (bind pose only for now)
+    // Prepare skinning uniforms
     GLint locSkinned = glGetUniformLocation(shaderProgram, "uSkinned");
     GLint locJointCount = glGetUniformLocation(shaderProgram, "uJointCount");
     GLint locJointMatrices = glGetUniformLocation(shaderProgram, "uJointMatrices[0]");
-
-    // Debug: Check if skinning uniforms are found
-    static int uniformDebugCounter = 0;
-    if (++uniformDebugCounter % 60 == 0)
-    {
-        std::cout << "🔍 UNIFORM DEBUG: Skinning uniform locations - uSkinned=" << locSkinned
-                  << ", uJointCount=" << locJointCount << ", uJointMatrices=" << locJointMatrices << std::endl;
-    }
-    // Debug counters
-    size_t debugSkinnedPrims = 0;
-    size_t debugUnskinnedPrims = 0;
 
     // Render each primitive
     for (const auto &primitive : m_primitives)
@@ -1235,90 +1253,34 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
         if (!primitive.isInitialized)
             continue;
 
-        // Upload joint palette if skinned
-        if (primitive.skinIndex >= 0)
+        // Upload joint palette if skinned AND animation is enabled
+        // When animation is disabled, bypass skinning to show raw mesh vertices
+        if (primitive.skinIndex >= 0 && m_animEnabled)
         {
-            debugSkinnedPrims++;
-            static int skinDebugCounter = 0;
-            if (++skinDebugCounter % 60 == 0)
-            { // Debug every 60 frames
-                std::cout << "🔍 SKIN DEBUG: Found skinned primitive, skinIndex=" << primitive.skinIndex << std::endl;
-                std::cout << "🔍 SKIN DEBUG: Uniform locations - locSkinned=" << locSkinned << ", locJointCount=" << locJointCount << ", locJointMatrices=" << locJointMatrices << std::endl;
-            }
-
             if (locSkinned >= 0 && locJointCount >= 0 && locJointMatrices >= 0)
             {
                 const SkinData &sd = m_skins[primitive.skinIndex];
                 int jointCount = (int)std::min(sd.joints.size(), (size_t)64);
                 std::vector<glm::mat4> palette(jointCount);
 
-                if (skinDebugCounter % 60 == 0)
-                { // Debug every 60 frames
-                    std::cout << "🔍 SKIN DEBUG: Uploading " << jointCount << " joint matrices for skinning" << std::endl;
-                    std::cout << "🔍 SKIN DEBUG: Joint nodes: ";
-                    for (int i = 0; i < std::min(5, jointCount); ++i)
-                    {
-                        std::cout << sd.joints[i] << " ";
-                    }
-                    std::cout << "..." << std::endl;
-                }
-
                 for (int i = 0; i < jointCount; ++i)
                 {
                     int nodeIdx = sd.joints[i];
-
-                    // Debug: Check if nodeIdx is within bounds
-                    if (nodeIdx >= m_nodeGlobalTransforms.size())
-                    {
-                        if (skinDebugCounter % 60 == 0)
-                        {
-                            std::cout << "🔍 SKIN DEBUG: ERROR - Joint " << i << " references node " << nodeIdx << " but global transforms array only has " << m_nodeGlobalTransforms.size() << " elements!" << std::endl;
-                        }
+                    if (nodeIdx >= (int)m_nodeGlobalTransforms.size())
                         continue;
-                    }
 
                     glm::mat4 jointGlobal = m_nodeGlobalTransforms[nodeIdx];
-                    // Skinning in model-local space; uModel applied after skinning in shader
                     palette[i] = jointGlobal * sd.inverseBind[i];
-
-                    // Debug: Print joint matrix values to see if they're changing
-                    if (skinDebugCounter % 60 == 0 && i < 3)
-                    {
-                        std::cout << "🔍 SKIN DEBUG: Joint " << i << " (node " << nodeIdx << ") global transform: ["
-                                  << jointGlobal[0][0] << ", " << jointGlobal[0][1] << ", " << jointGlobal[0][2] << ", " << jointGlobal[0][3] << "]" << std::endl;
-                        std::cout << "🔍 SKIN DEBUG: Joint " << i << " (node " << nodeIdx << ") inverse bind: ["
-                                  << sd.inverseBind[i][0][0] << ", " << sd.inverseBind[i][0][1] << ", " << sd.inverseBind[i][0][2] << ", " << sd.inverseBind[i][0][3] << "]" << std::endl;
-                        std::cout << "🔍 SKIN DEBUG: Joint " << i << " (node " << nodeIdx << ") final matrix: ["
-                                  << palette[i][0][0] << ", " << palette[i][0][1] << ", " << palette[i][0][2] << ", " << palette[i][0][3] << "]" << std::endl;
-                    }
                 }
 
-                // Debug: Print joint matrices if debug counter matches
-                if (skinDebugCounter % 60 == 0)
-                {
-                    std::cout << "🔍 SKIN DEBUG: Sample joint matrices:" << std::endl;
-                    for (int i = 0; i < std::min(3, jointCount); ++i)
-                    {
-                        const glm::mat4 &joint = palette[i];
-                        std::cout << "🔍 SKIN DEBUG: Joint " << i << " matrix: ["
-                                  << joint[0][0] << ", " << joint[0][1] << ", " << joint[0][2] << ", " << joint[0][3] << "]" << std::endl;
-                    }
-                }
                 glUniform1i(locSkinned, 1);
                 glUniform1i(locJointCount, jointCount);
                 glUniformMatrix4fv(locJointMatrices, jointCount, GL_FALSE, glm::value_ptr(palette[0]));
             }
-            else
-            {
-                if (skinDebugCounter % 60 == 0)
-                {
-                    std::cout << "🔍 SKIN DEBUG: WARNING - Skinning uniforms not found in shader!" << std::endl;
-                }
-            }
         }
         else if (locSkinned >= 0)
         {
-            debugUnskinnedPrims++;
+            // Skinning disabled - use raw vertex positions
             glUniform1i(locSkinned, 0);
         }
 
@@ -1408,15 +1370,6 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
     }
 
     glUseProgram(0);
-    // One-time debug print to verify what's rendering
-    static int dbgOnce = 0;
-    if (dbgOnce < 3)
-    {
-        std::cout << "GLTF Render: skinned prims=" << debugSkinnedPrims
-                  << ", unskinned prims=" << debugUnskinnedPrims
-                  << ", total prims=" << m_primitives.size() << std::endl;
-        dbgOnce++;
-    }
 }
 
 size_t GLTFModel::getVertexCount() const

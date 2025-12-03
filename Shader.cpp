@@ -50,6 +50,7 @@ void Shader::cleanup()
         glDeleteProgram(programID);
         programID = 0;
     }
+    m_uniformCache.clear();
 }
 
 void Shader::setUniform(const std::string &name, int value) const
@@ -75,6 +76,11 @@ void Shader::setUniform(const std::string &name, const glm::vec3 &value) const
 void Shader::setUniform(const std::string &name, const glm::mat4 &value) const
 {
     glUniformMatrix4fv(getUniformLocation(name), 1, GL_FALSE, glm::value_ptr(value));
+}
+
+void Shader::setUniform(const std::string &name, bool value) const
+{
+    glUniform1i(getUniformLocation(name), value ? 1 : 0);
 }
 
 std::string Shader::loadShaderText(const std::string &fileName)
@@ -224,5 +230,15 @@ GLuint Shader::createProgramWithTess(const std::string &vs,
 
 GLint Shader::getUniformLocation(const std::string &name) const
 {
-    return glGetUniformLocation(programID, name.c_str());
+    // Check cache first
+    auto it = m_uniformCache.find(name);
+    if (it != m_uniformCache.end())
+    {
+        return it->second;
+    }
+
+    // Cache miss - look up and store
+    GLint location = glGetUniformLocation(programID, name.c_str());
+    m_uniformCache[name] = location;
+    return location;
 }

@@ -1,3 +1,38 @@
+/**
+ * @file ModelManager.h
+ * @brief GLTF model loading and PBR rendering
+ *
+ * ModelManager handles loading GLTF models via tinygltf and rendering them
+ * with PBR (Physically Based Rendering) materials. Supports skeletal animation,
+ * instancing, and per-instance visibility control.
+ *
+ * Model Loading:
+ *   - loadModel(filepath, name) - Loads GLTF/GLB file
+ *   - Models stored as unique_ptr<GLTFModel> in m_models vector
+ *   - Supports embedded textures and external texture files
+ *
+ * Instancing:
+ *   - addModelInstance(name, transform) - Creates renderable instance
+ *   - Each instance is an ECS entity with TransformComponent + ModelRefComponent
+ *   - Per-instance visibility and transform control
+ *
+ * PBR Shader (pbr_model.vert/frag):
+ *   - GGX normal distribution + Schlick-GGX geometry
+ *   - Fresnel approximation for specular reflection
+ *   - Supports baseColor, metallic, roughness, normal, occlusion textures
+ *   - Integrates with flashlight UBO and fog system
+ *
+ * ECS Integration:
+ *   - Entities created with TransformComponent, RenderableComponent, ModelRefComponent
+ *   - ModelRefComponent stores pointer to GLTFModel (fragile if model removed)
+ *   - Consider using model index instead for safety
+ *
+ * Known Issues:
+ *   - No LOD system for models (renders full detail at all distances)
+ *   - Per-instance draw calls (no GPU instancing of model copies)
+ *
+ * @see GLTFModel, pbr_model.vert, pbr_model.frag
+ */
 #pragma once
 
 #include "GLTFModel.h"
@@ -6,15 +41,11 @@
 #include <vector>
 #include <memory>
 
-struct ModelInstance
-{
-    GLTFModel *model;
-    glm::mat4 transform;
-    bool isVisible;
-
-    ModelInstance(GLTFModel *model, const glm::mat4 &transform = glm::mat4(1.0f))
-        : model(model), transform(transform), isVisible(true) {}
-};
+// ECS includes
+#include "ECSWorld.h"
+#include "components/TransformComponent.h"
+#include "components/RenderableComponent.h"
+#include "components/MaterialComponent.h"
 
 class ModelManager
 {
@@ -44,7 +75,7 @@ public:
 
     // Getters
     size_t getModelCount() const { return m_models.size(); }
-    size_t getInstanceCount() const { return m_instances.size(); }
+    size_t getInstanceCount() const { return m_instanceEntities.size(); }
     bool isInitialized() const { return m_isInitialized; }
 
     // Performance stats
@@ -52,7 +83,7 @@ public:
     size_t getTotalTriangleCount() const;
     void printStats() const;
 
-    // Fog configuration
+    // Fog configuration (will be moved to Config system in Phase 3)
     void setFogEnabled(bool enabled) { m_fogEnabled = enabled; }
     void setFogColor(const glm::vec3 &color) { m_fogColor = color; }
     void setFogDensity(float density) { m_fogDensity = density; }
@@ -63,13 +94,17 @@ public:
         m_fogAbsorptionStrength = strength;
     }
 
+    // Custom component for linking entity to GLTFModel pointer
+    struct ModelRefComponent {
+        GLTFModel* model = nullptr;
+    };
+
 private:
     std::vector<std::pair<std::string, std::unique_ptr<GLTFModel>>> m_models;
-    std::vector<ModelInstance> m_instances;
     Shader m_pbrShader;
     bool m_isInitialized;
 
-    // Fog parameters
+    // Fog parameters (will be moved to Config in Phase 3)
     bool m_fogEnabled;
     glm::vec3 m_fogColor;
     float m_fogDensity;
@@ -80,4 +115,34 @@ private:
     // Helper functions
     bool setupPBRShader();
     int findModelIndex(const std::string &name);
+
+    // Entity tracking
+    std::vector<ecs::Entity> m_instanceEntities;
+
+    // ECS helper methods
+    ecs::Entity createModelInstanceEntity(GLTFModel* model, const glm::mat4& transform);
+
+    // Cached uniform locations (avoids glGetUniformLocation every frame)
+    struct UniformCache {
+        GLint cameraPos = -1;
+        GLint lightDir = -1;
+        GLint lightColor = -1;
+        GLint exposure = -1;
+        GLint flashlightOn = -1;
+        GLint flashlightPos = -1;
+        GLint flashlightDir = -1;
+        GLint flashlightCutoff = -1;
+        GLint flashlightBrightness = -1;
+        GLint flashlightColor = -1;
+        GLint debugNormals = -1;
+        GLint fogEnabled = -1;
+        GLint fogColor = -1;
+        GLint fogDensity = -1;
+        GLint fogDesaturationStrength = -1;
+        GLint fogAbsorptionDensity = -1;
+        GLint fogAbsorptionStrength = -1;
+        GLint backgroundColor = -1;
+    };
+    UniformCache m_uniforms;
+    void cacheUniformLocations();
 };

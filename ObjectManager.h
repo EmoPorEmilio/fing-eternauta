@@ -1,23 +1,59 @@
+/**
+ * @file ObjectManager.h
+ * @brief GPU-instanced rendering of prism objects with LOD and culling
+ *
+ * ObjectManager handles the rendering of up to 500k+ instanced prisms with
+ * a 3-level LOD system and distance-based culling for performance.
+ *
+ * GPU Resources:
+ *   - 3 VAOs/VBOs/EBOs (one per LOD level: HIGH, MEDIUM, LOW)
+ *   - 3 instance VBOs for per-LOD model matrices
+ *   - Compiled shader program (object_instanced.vert/frag)
+ *
+ * LOD System:
+ *   - HIGH: < 50m from camera (full geometry)
+ *   - MEDIUM: 50-150m (reduced geometry)
+ *   - LOW: > 150m (minimal geometry)
+ *   - Managed by LODSystem which updates LODComponent per entity
+ *
+ * Culling:
+ *   - Distance-based via CullingSystem
+ *   - Entities beyond cull distance have RenderableComponent.visible = false
+ *
+ * ECS Integration:
+ *   - Creates entities with TransformComponent, RenderableComponent, LODComponent
+ *   - gatherInstanceMatrices() queries ECS for visible entities by LOD level
+ *   - Entities stored in m_entities vector for cleanup
+ *
+ * Performance Presets:
+ *   - PRESET_MINIMAL: 3,000 objects
+ *   - PRESET_MEDIUM: 15,000 objects
+ *   - PRESET_MAXIMUM: 500,000 objects
+ *
+ * Events:
+ *   - FogConfigChangedEvent: Updates fog uniforms
+ *   - PerformancePresetChangedEvent: Recreates entities
+ *
+ * @see LODSystem, CullingSystem, Prism
+ */
 #pragma once
 
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <vector>
-#include <random>
 #include "Prism.h"
 #include "LightManager.h"
 #include "AssetManager.h"
+#include "events/Events.h"
 
-struct GameObject
-{
-    glm::vec3 position;
-    glm::mat4 modelMatrix;
-    float distanceToCamera;
-    bool isVisible;
-    LODLevel currentLOD;
-
-    GameObject() : position(0.0f), modelMatrix(1.0f), distanceToCamera(0.0f), isVisible(true), currentLOD(LODLevel::HIGH) {}
-};
+// ECS includes
+#include "ECSWorld.h"
+#include "components/TransformComponent.h"
+#include "components/RenderableComponent.h"
+#include "components/LODComponent.h"
+#include "components/BatchGroupComponent.h"
+#include "systems/LODSystem.h"
+#include "systems/CullingSystem.h"
 
 class ObjectManager
 {
@@ -30,12 +66,12 @@ public:
     void render(const glm::mat4 &view, const glm::mat4 &projection, const glm::vec3 &cameraPos, const glm::vec3 &cameraFront, const LightManager &lightManager, GLuint textureID);
 
     void setObjectCount(int count);
-    int getObjectCount() const { return static_cast<int>(objects.size()); }
+    int getObjectCount() const;
 
     // Performance presets
-    static constexpr int PRESET_MINIMAL = 3000;   // Current amount (minimal)
-    static constexpr int PRESET_MEDIUM = 15000;   // Much more objects
-    static constexpr int PRESET_MAXIMUM = 500000; // A MASSIVE SHITTON of objects (10x increase)
+    static constexpr int PRESET_MINIMAL = 3000;
+    static constexpr int PRESET_MEDIUM = 15000;
+    static constexpr int PRESET_MAXIMUM = 500000;
 
     // Performance monitoring
     void printPerformanceStats();
@@ -49,7 +85,8 @@ public:
     void toggleCulling() { cullingEnabled = !cullingEnabled; }
     void toggleLOD() { lodEnabled = !lodEnabled; }
 
-    // Fog configuration
+    // Fog configuration - automatically synced via events from ConfigManager
+    // Direct setters are still available but prefer ConfigManager for centralized control
     void setFogEnabled(bool enabled) { fogEnabled = enabled; }
     void setFogColor(const glm::vec3 &color) { fogColor = color; }
     void setFogDensity(float density) { fogDensity = density; }
@@ -60,10 +97,18 @@ public:
         fogAbsorptionStrength = strength;
     }
 
+    // Event handlers
+    void onFogConfigChanged(const events::FogConfigChangedEvent& event);
+    void onPerformancePresetChanged(const events::PerformancePresetChangedEvent& event);
+
     void cleanup();
 
 private:
-    std::vector<GameObject> objects;
+    // ECS system pointers (owned by ECSWorld, just cached here for convenience)
+    ecs::LODSystem* m_lodSystem = nullptr;
+    ecs::CullingSystem* m_cullingSystem = nullptr;
+
+    // Prism geometry template
     Prism prismGeometry;
 
     // OpenGL objects - multiple VAOs for different LOD levels
@@ -87,13 +132,13 @@ private:
     float fps;
     int frameCount;
     float lastStatsTime;
-    static constexpr float STATS_INTERVAL = 1.0f; // Print stats every 1 second
+    static constexpr float STATS_INTERVAL = 1.0f;
 
     // Runtime configuration
     bool cullingEnabled;
     bool lodEnabled;
 
-    // Fog parameters
+    // Fog parameters (will be moved to Config in Phase 3)
     bool fogEnabled;
     glm::vec3 fogColor;
     float fogDensity;
@@ -102,20 +147,57 @@ private:
     float fogAbsorptionStrength;
 
     // Constants
-    static constexpr float MIN_DISTANCE = 3.0f;          // Minimum distance between objects
-    static constexpr float WORLD_SIZE = 500.0f;          // World bounds
-    static constexpr float HIGH_LOD_DISTANCE = 50.0f;    // Distance for high LOD (increased for better balance)
-    static constexpr float MEDIUM_LOD_DISTANCE = 150.0f; // Distance for medium LOD (increased for better balance)
+    static constexpr float MIN_DISTANCE = 3.0f;
+    static constexpr float WORLD_SIZE = 500.0f;
+    static constexpr float HIGH_LOD_DISTANCE = 50.0f;
+    static constexpr float MEDIUM_LOD_DISTANCE = 150.0f;
 
-    void generateGridPositions(int objectCount);
-    void setupGeometry();
-    void setupShader();
-    void updateObjectDistances(const glm::vec3 &cameraPos);
-    void cullObjects(float cullDistance);
-    bool isValidPosition(const glm::vec3 &pos);
-
-    // LOD-specific setup
+    // Setup methods
     void setupLODGeometry();
+    void setupShader();
     void setupLODVAO(GLuint &vao, GLuint &vbo, GLuint &ebo, GLuint &instanceVbo, const Prism &prism);
+
+    // Rendering
     void renderLODLevelInstanced(LODLevel lod, const std::vector<glm::mat4> &instanceMatrices);
+
+    // ECS helpers
+    void initializeECSSystems();
+    void createPrismEntities(int count);
+    ecs::Entity createPrismEntity(const glm::vec3& position);
+    void gatherInstanceMatrices(std::vector<glm::mat4>& highInstances,
+                                std::vector<glm::mat4>& mediumInstances,
+                                std::vector<glm::mat4>& lowInstances);
+
+    // Entity tracking for this manager
+    std::vector<ecs::Entity> m_entities;
+
+    // Event subscriptions
+    events::SubscriptionId m_fogSubscription = 0;
+    events::SubscriptionId m_performanceSubscription = 0;
+    void subscribeToEvents();
+    void unsubscribeFromEvents();
+
+    // Cached uniform locations (avoids glGetUniformLocation every frame)
+    struct UniformCache {
+        GLint view = -1;
+        GLint projection = -1;
+        GLint viewPos = -1;
+        GLint objectColor = -1;
+        GLint useTexture = -1;
+        GLint flashlightOn = -1;
+        GLint flashlightPos = -1;
+        GLint flashlightDir = -1;
+        GLint flashlightCutoff = -1;
+        GLint flashlightBrightness = -1;
+        GLint flashlightColor = -1;
+        GLint fogEnabled = -1;
+        GLint fogColor = -1;
+        GLint fogDensity = -1;
+        GLint fogDesaturationStrength = -1;
+        GLint fogAbsorptionDensity = -1;
+        GLint fogAbsorptionStrength = -1;
+        GLint backgroundColor = -1;
+    };
+    UniformCache m_uniforms;
+    void cacheUniformLocations();
 };

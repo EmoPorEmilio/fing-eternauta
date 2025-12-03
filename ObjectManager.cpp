@@ -8,20 +8,6 @@
 #include <algorithm>
 #include <iomanip>
 
-std::string loadShaderFile(const std::string &filename)
-{
-    std::ifstream file(filename);
-    if (!file.is_open())
-    {
-        std::cerr << "Failed to open shader file: " << filename << std::endl;
-        return "";
-    }
-
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
-}
-
 ObjectManager::ObjectManager() : isInitialized(false),
                                  highLodVao(0), highLodVbo(0), highLodEbo(0),
                                  mediumLodVao(0), mediumLodVbo(0), mediumLodEbo(0),
@@ -30,7 +16,8 @@ ObjectManager::ObjectManager() : isInitialized(false),
                                  shaderProgram(0), frameTime(0.0f), fps(0.0f),
                                  frameCount(0), lastStatsTime(0.0f),
                                  cullingEnabled(true), lodEnabled(false),
-                                 fogEnabled(true), fogColor(0.0f, 0.0f, 0.0f), fogDensity(0.01f), fogDesaturationStrength(1.0f), fogAbsorptionDensity(0.02f), fogAbsorptionStrength(0.8f)
+                                 fogEnabled(true), fogColor(0.0f, 0.0f, 0.0f), fogDensity(0.01f),
+                                 fogDesaturationStrength(1.0f), fogAbsorptionDensity(0.02f), fogAbsorptionStrength(0.8f)
 {
 }
 
@@ -46,28 +33,53 @@ void ObjectManager::initialize(int objectCount)
         cleanup();
     }
 
-    std::cout << "Loading " << objectCount << " objects..." << std::endl;
+    std::cout << "[ObjectManager] Initializing with " << objectCount << " objects (ECS mode)" << std::endl;
 
     // Setup OpenGL resources first
     setupLODGeometry();
     setupShader();
 
-    // Force shader recompilation to ensure latest changes are applied
-    if (shaderProgram != 0)
-    {
-        std::cout << "ObjectManager: Forcing shader recompilation..." << std::endl;
-        glDeleteProgram(shaderProgram);
-        shaderProgram = 0;
-    }
-    setupShader();
-    std::cout << "ObjectManager: Shader recompiled successfully!" << std::endl;
+    // Initialize ECS systems if not already done
+    initializeECSSystems();
 
-    // Generate all objects at once with progress bar
-    generateGridPositions(objectCount);
+    // Create prism entities
+    createPrismEntities(objectCount);
+
+    std::cout << "[ObjectManager] Initialization complete. Created " << m_entities.size() << " entities." << std::endl;
+
+    // Subscribe to configuration events
+    subscribeToEvents();
 
     isInitialized = true;
+}
 
-    std::cout << "Loading complete! Generated " << objects.size() << " objects." << std::endl;
+void ObjectManager::initializeECSSystems()
+{
+    auto& systems = ECSWorld::getSystems();
+
+    // Check if systems already exist
+    m_lodSystem = systems.getSystem<ecs::LODSystem>();
+    m_cullingSystem = systems.getSystem<ecs::CullingSystem>();
+
+    // Add systems if they don't exist yet
+    if (!m_lodSystem)
+    {
+        m_lodSystem = &systems.addSystem<ecs::LODSystem>();
+        std::cout << "[ObjectManager] Added LODSystem to ECSWorld" << std::endl;
+    }
+
+    if (!m_cullingSystem)
+    {
+        m_cullingSystem = &systems.addSystem<ecs::CullingSystem>();
+        std::cout << "[ObjectManager] Added CullingSystem to ECSWorld" << std::endl;
+    }
+
+    // Configure systems
+    m_lodSystem->setLODEnabled(lodEnabled);
+    m_cullingSystem->setCullingEnabled(cullingEnabled);
+
+    // Initialize systems
+    systems.init(ECSWorld::getRegistry());
 }
 
 void ObjectManager::update(const glm::vec3 &cameraPos, float cullDistance, float highLodDistance, float mediumLodDistance, float deltaTime)
@@ -79,76 +91,21 @@ void ObjectManager::update(const glm::vec3 &cameraPos, float cullDistance, float
     if (deltaTime > 0.0f)
         updatePerformanceStats(deltaTime);
 
-    updateObjectDistances(cameraPos);
-
-    // Apply culling based on configuration
-    if (cullingEnabled)
+    // Configure systems with current parameters
+    if (m_lodSystem)
     {
-        cullObjects(cullDistance);
+        m_lodSystem->setCameraPosition(cameraPos);
+        m_lodSystem->setLODEnabled(lodEnabled);
     }
-    else
+    if (m_cullingSystem)
     {
-        // Since culling is disabled, mark all objects as visible
-        static bool cullingDisabledMessageShown = false;
-        if (!cullingDisabledMessageShown)
-        {
-            std::cout << "CULLING DISABLED: All " << objects.size() << " objects will be rendered!" << std::endl;
-            cullingDisabledMessageShown = true;
-        }
-        for (auto &obj : objects)
-        {
-            obj.isVisible = true;
-        }
+        m_cullingSystem->setCameraPosition(cameraPos);
+        m_cullingSystem->setCullDistance(cullDistance);
+        m_cullingSystem->setCullingEnabled(cullingEnabled);
     }
 
-    // Show LOD status message
-    static bool lodDisabledMessageShown = false;
-    if (!lodEnabled && !lodDisabledMessageShown)
-    {
-        std::cout << "LOD DISABLED: All objects will use high detail geometry!" << std::endl;
-        lodDisabledMessageShown = true;
-    }
-
-    // Only recalculate LOD every 10 frames to reduce CPU overhead
-    static int lodUpdateCounter = 0;
-    bool shouldUpdateLOD = (++lodUpdateCounter >= 10);
-    if (shouldUpdateLOD)
-    {
-        lodUpdateCounter = 0;
-    }
-
-    // Update LOD levels and model matrices for visible objects
-    for (auto &obj : objects)
-    {
-        if (obj.isVisible)
-        {
-            // Determine LOD level based on distance and configuration
-            if (lodEnabled && shouldUpdateLOD)
-            {
-                // Normal LOD calculation (only every 10 frames)
-                if (obj.distanceToCamera <= highLodDistance)
-                {
-                    obj.currentLOD = LODLevel::HIGH;
-                }
-                else if (obj.distanceToCamera <= mediumLodDistance)
-                {
-                    obj.currentLOD = LODLevel::MEDIUM;
-                }
-                else
-                {
-                    obj.currentLOD = LODLevel::LOW;
-                }
-            }
-            else if (!lodEnabled)
-            {
-                // LOD disabled - all objects use high detail
-                obj.currentLOD = LODLevel::HIGH;
-            }
-            // If LOD enabled but not updating this frame, keep current LOD level
-
-            obj.modelMatrix = glm::translate(glm::mat4(1.0f), obj.position);
-        }
-    }
+    // Systems are updated via ECSWorld::update() called from Application
+    // We don't need to call m_systems.update() here anymore
 }
 
 void ObjectManager::render(const glm::mat4 &view, const glm::mat4 &projection, const glm::vec3 &cameraPos, const glm::vec3 &cameraFront, const LightManager &lightManager, GLuint textureID)
@@ -158,222 +115,92 @@ void ObjectManager::render(const glm::mat4 &view, const glm::mat4 &projection, c
 
     glUseProgram(shaderProgram);
 
-    // Set common uniforms
-    GLint viewLoc = glGetUniformLocation(shaderProgram, "uView");
-    GLint projLoc = glGetUniformLocation(shaderProgram, "uProj");
-    GLint viewPosLoc = glGetUniformLocation(shaderProgram, "uViewPos");
-    GLint objectColorLoc = glGetUniformLocation(shaderProgram, "uObjectColor");
-    GLint useTextureLoc = glGetUniformLocation(shaderProgram, "uUseTexture");
-    GLint flashlightOnLoc = glGetUniformLocation(shaderProgram, "uFlashlightOn");
-    GLint flashlightPosLoc = glGetUniformLocation(shaderProgram, "uFlashlightPos");
-    GLint flashlightDirLoc = glGetUniformLocation(shaderProgram, "uFlashlightDir");
-    GLint flashlightCutoffLoc = glGetUniformLocation(shaderProgram, "uFlashlightCutoff");
-    GLint flashlightBrightnessLoc = glGetUniformLocation(shaderProgram, "uFlashlightBrightness");
-    GLint flashlightColorLoc = glGetUniformLocation(shaderProgram, "uFlashlightColor");
-    GLint fogEnabledLoc = glGetUniformLocation(shaderProgram, "uFogEnabled");
-    GLint fogColorLoc = glGetUniformLocation(shaderProgram, "uFogColor");
-    GLint fogDensityLoc = glGetUniformLocation(shaderProgram, "uFogDensity");
-    GLint fogDesaturationStrengthLoc = glGetUniformLocation(shaderProgram, "uFogDesaturationStrength");
-    GLint fogAbsorptionDensityLoc = glGetUniformLocation(shaderProgram, "uFogAbsorptionDensity");
-    GLint fogAbsorptionStrengthLoc = glGetUniformLocation(shaderProgram, "uFogAbsorptionStrength");
-    GLint backgroundColorLoc = glGetUniformLocation(shaderProgram, "uBackgroundColor");
-
-    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
-    glUniform3f(viewPosLoc, cameraPos.x, cameraPos.y, cameraPos.z);
-    glUniform3f(objectColorLoc, 1.0f, 0.0f, 0.0f); // Red color
-    glUniform1i(useTextureLoc, 0);                 // No texture for objects
+    // Use cached uniform locations (no glGetUniformLocation calls per frame)
+    glUniformMatrix4fv(m_uniforms.view, 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(m_uniforms.projection, 1, GL_FALSE, glm::value_ptr(projection));
+    glUniform3f(m_uniforms.viewPos, cameraPos.x, cameraPos.y, cameraPos.z);
+    glUniform3f(m_uniforms.objectColor, 1.0f, 0.0f, 0.0f); // Red color
+    glUniform1i(m_uniforms.useTexture, 0);                 // No texture for objects
 
     // Set flashlight uniforms
-    glUniform1i(flashlightOnLoc, lightManager.isFlashlightOn() ? 1 : 0);
-    glUniform3f(flashlightPosLoc, cameraPos.x, cameraPos.y, cameraPos.z);
-    glUniform3f(flashlightDirLoc, cameraFront.x, cameraFront.y, cameraFront.z);
-    glUniform1f(flashlightCutoffLoc, lightManager.getFlashlightCutoff());
-    glUniform1f(flashlightBrightnessLoc, lightManager.getFlashlightBrightness());
+    glUniform1i(m_uniforms.flashlightOn, lightManager.isFlashlightOn() ? 1 : 0);
+    glUniform3f(m_uniforms.flashlightPos, cameraPos.x, cameraPos.y, cameraPos.z);
+    glUniform3f(m_uniforms.flashlightDir, cameraFront.x, cameraFront.y, cameraFront.z);
+    glUniform1f(m_uniforms.flashlightCutoff, lightManager.getFlashlightCutoff());
+    glUniform1f(m_uniforms.flashlightBrightness, lightManager.getFlashlightBrightness());
     glm::vec3 flColor = lightManager.getFlashlightColor();
-    glUniform3f(flashlightColorLoc, flColor.x, flColor.y, flColor.z);
+    glUniform3f(m_uniforms.flashlightColor, flColor.x, flColor.y, flColor.z);
 
     // Set fog uniforms
-    glUniform1i(fogEnabledLoc, fogEnabled ? 1 : 0);
-    glUniform3f(fogColorLoc, fogColor.x, fogColor.y, fogColor.z);
-    glUniform1f(fogDensityLoc, fogDensity);
-    glUniform1f(fogDesaturationStrengthLoc, fogDesaturationStrength);
-    glUniform1f(fogAbsorptionDensityLoc, fogAbsorptionDensity);
-    glUniform1f(fogAbsorptionStrengthLoc, fogAbsorptionStrength);
-    glUniform3f(backgroundColorLoc, 0.08f, 0.1f, 0.12f); // Match renderer clear color
+    glUniform1i(m_uniforms.fogEnabled, fogEnabled ? 1 : 0);
+    glUniform3f(m_uniforms.fogColor, fogColor.x, fogColor.y, fogColor.z);
+    glUniform1f(m_uniforms.fogDensity, fogDensity);
+    glUniform1f(m_uniforms.fogDesaturationStrength, fogDesaturationStrength);
+    glUniform1f(m_uniforms.fogAbsorptionDensity, fogAbsorptionDensity);
+    glUniform1f(m_uniforms.fogAbsorptionStrength, fogAbsorptionStrength);
+    glUniform3f(m_uniforms.backgroundColor, 0.08f, 0.1f, 0.12f);
 
-    // Debug: Check if uniform location is valid and log values
-    if (fogDesaturationStrengthLoc == -1)
-    {
-        std::cout << "ERROR: uFogDesaturationStrength uniform not found in ObjectManager shader!" << std::endl;
-    }
-    else
-    {
-        static int debugCounter = 0;
-        if (debugCounter % 60 == 0)
-        { // Log every 60 frames
-            std::cout << "ObjectManager Debug - FogEnabled: " << fogEnabled
-                      << ", FogDensity: " << fogDensity
-                      << ", FogDesaturation: " << fogDesaturationStrength << std::endl;
-        }
-        debugCounter++;
-    }
-
-    // Gather instances per LOD - reserve smart estimates to prevent reallocations
+    // Gather instances per LOD - reserve smart estimates
     std::vector<glm::mat4> highInstances;
     std::vector<glm::mat4> mediumInstances;
     std::vector<glm::mat4> lowInstances;
 
-    // Smart memory reservation based on typical LOD distribution
-    // Estimate: 10% high, 25% medium, 65% low LOD based on new distances
-    size_t totalObjects = objects.size();
-    highInstances.reserve(totalObjects / 10);   // ~10% expected in high LOD
-    mediumInstances.reserve(totalObjects / 4);  // ~25% expected in medium LOD
-    lowInstances.reserve(totalObjects * 2 / 3); // ~65% expected in low LOD
+    size_t totalObjects = m_entities.size();
+    highInstances.reserve(totalObjects / 10);
+    mediumInstances.reserve(totalObjects / 4);
+    lowInstances.reserve(totalObjects * 2 / 3);
 
-    // Fast path: if LOD is disabled, use single batch rendering
     if (!lodEnabled)
     {
-        for (const auto &obj : objects)
-        {
-            if (obj.isVisible)
-                highInstances.push_back(obj.modelMatrix);
-        }
-
-        if (!highInstances.empty())
-            renderLODLevelInstanced(LODLevel::HIGH, highInstances);
+        // LOD disabled: all visible entities use HIGH LOD
+        auto& registry = ECSWorld::getRegistry();
+        registry.each<ecs::TransformComponent, ecs::RenderableComponent>(
+            [&](ecs::TransformComponent& transform, ecs::RenderableComponent& renderable) {
+                if (renderable.visible)
+                    highInstances.push_back(transform.modelMatrix);
+            });
     }
     else
     {
-        // LOD enabled: sort into buckets
-        for (const auto &obj : objects)
-        {
-            if (!obj.isVisible)
-                continue;
-            if (obj.currentLOD == LODLevel::HIGH)
-                highInstances.push_back(obj.modelMatrix);
-            else if (obj.currentLOD == LODLevel::MEDIUM)
-                mediumInstances.push_back(obj.modelMatrix);
-            else
-                lowInstances.push_back(obj.modelMatrix);
-        }
-
-        // Render each LOD level with instancing
-        if (!highInstances.empty())
-            renderLODLevelInstanced(LODLevel::HIGH, highInstances);
-        if (!mediumInstances.empty())
-            renderLODLevelInstanced(LODLevel::MEDIUM, mediumInstances);
-        if (!lowInstances.empty())
-            renderLODLevelInstanced(LODLevel::LOW, lowInstances);
-
-        // Debug info: show LOD distribution occasionally
-        static int lodDebugCounter = 0;
-        if (++lodDebugCounter >= 300)
-        { // Every 5 seconds at 60fps
-            lodDebugCounter = 0;
-            std::cout << "LOD Distribution - High: " << highInstances.size()
-                      << ", Medium: " << mediumInstances.size()
-                      << ", Low: " << lowInstances.size()
-                      << " (Total visible: " << (highInstances.size() + mediumInstances.size() + lowInstances.size()) << ")" << std::endl;
-        }
+        // LOD enabled: gather by LOD level
+        gatherInstanceMatrices(highInstances, mediumInstances, lowInstances);
     }
 
-    // Print performance info every 60 frames (gated by OPENGL_ADV_DEBUG_LOGS)
-    static bool gDebugLogs = (std::getenv("OPENGL_ADV_DEBUG_LOGS") != nullptr);
-    if (gDebugLogs)
+    // Render each LOD level with instancing
+    if (!highInstances.empty())
+        renderLODLevelInstanced(LODLevel::HIGH, highInstances);
+    if (!mediumInstances.empty())
+        renderLODLevelInstanced(LODLevel::MEDIUM, mediumInstances);
+    if (!lowInstances.empty())
+        renderLODLevelInstanced(LODLevel::LOW, lowInstances);
+
+    // Debug info: show LOD distribution occasionally
+    static int lodDebugCounter = 0;
+    if (++lodDebugCounter >= 300)
     {
-        static int frameCounter = 0;
-        frameCounter++;
-        if (frameCounter % 60 == 0)
-        {
-            std::cout << "Rendered " << (highInstances.size() + mediumInstances.size() + lowInstances.size())
-                      << " objects (High: " << highInstances.size()
-                      << ", Medium: " << mediumInstances.size()
-                      << ", Low: " << lowInstances.size() << ")" << std::endl;
-        }
+        lodDebugCounter = 0;
+        std::cout << "[ObjectManager] LOD Distribution - High: " << highInstances.size()
+                  << ", Medium: " << mediumInstances.size()
+                  << ", Low: " << lowInstances.size()
+                  << " (Total visible: " << (highInstances.size() + mediumInstances.size() + lowInstances.size()) << ")" << std::endl;
     }
 }
 
 void ObjectManager::setObjectCount(int count)
 {
-    if (count != static_cast<int>(objects.size()))
+    if (count != static_cast<int>(m_entities.size()))
     {
         initialize(count);
     }
 }
 
-void ObjectManager::generateGridPositions(int objectCount)
+int ObjectManager::getObjectCount() const
 {
-    objects.clear();
-    objects.reserve(objectCount);
-
-    // Calculate grid dimensions
-    float gridSpacing = MIN_DISTANCE;
-    int gridSize = static_cast<int>(std::ceil(std::sqrt(objectCount)));
-
-    // Center the grid around origin
-    float startX = -(gridSize * gridSpacing) / 2.0f;
-    float startZ = -(gridSize * gridSpacing) / 2.0f;
-
-    int objectsGenerated = 0;
-    const int progressInterval = std::max(1, objectCount / 20); // Show progress every 5%
-
-    std::cout << "Generating grid of " << objectCount << " objects..." << std::endl;
-
-    for (int row = 0; row < gridSize && objectsGenerated < objectCount; row++)
-    {
-        for (int col = 0; col < gridSize && objectsGenerated < objectCount; col++)
-        {
-            GameObject obj;
-            obj.position = glm::vec3(
-                startX + col * gridSpacing,
-                0.5f, // Y position (half height of prism)
-                startZ + row * gridSpacing);
-
-            // Initialize object properties
-            obj.modelMatrix = glm::translate(glm::mat4(1.0f), obj.position);
-            obj.distanceToCamera = 0.0f;
-            obj.isVisible = true;
-            obj.currentLOD = LODLevel::HIGH;
-
-            objects.push_back(obj);
-            objectsGenerated++;
-
-            // Show progress
-            if (objectsGenerated % progressInterval == 0 || objectsGenerated == objectCount)
-            {
-                float progress = (float)objectsGenerated / objectCount * 100.0f;
-                int barWidth = 50;
-                int filled = static_cast<int>((progress / 100.0f) * barWidth);
-
-                std::cout << "\r[";
-                for (int i = 0; i < barWidth; i++)
-                {
-                    if (i < filled)
-                        std::cout << "=";
-                    else if (i == filled)
-                        std::cout << ">";
-                    else
-                        std::cout << " ";
-                }
-                std::cout << "] " << std::fixed << std::setprecision(1) << progress << "% ("
-                          << objectsGenerated << "/" << objectCount << ")" << std::flush;
-            }
-        }
-    }
-
-    std::cout << std::endl; // New line after progress bar
-}
-
-void ObjectManager::setupGeometry()
-{
-    // This method is now replaced by setupLODGeometry()
-    // Keeping it for compatibility but it does nothing
+    return static_cast<int>(m_entities.size());
 }
 
 void ObjectManager::setupShader()
 {
-    // Use AssetManager to load shader program with proper error checking
     shaderProgram = AssetManager::loadShaderProgram(
         "object_instanced.vert",
         "object_instanced.frag",
@@ -381,70 +208,56 @@ void ObjectManager::setupShader()
 
     if (shaderProgram == 0)
     {
-        std::cerr << "CRITICAL ERROR: Failed to load ObjectManager shader program!" << std::endl;
-        std::cerr << "This will cause rendering failures. Check shader files and OpenGL context." << std::endl;
+        std::cerr << "[ObjectManager] CRITICAL ERROR: Failed to load shader program!" << std::endl;
     }
     else
     {
-        std::cout << "ObjectManager: Shader program loaded successfully (ID: " << shaderProgram << ")" << std::endl;
+        std::cout << "[ObjectManager] Shader program loaded (ID: " << shaderProgram << ")" << std::endl;
+        cacheUniformLocations();
     }
 
-    // Verify that the OpenGL context is still valid after shader operations
     AssetManager::checkGLError("ObjectManager::setupShader");
 }
 
-void ObjectManager::updateObjectDistances(const glm::vec3 &cameraPos)
+void ObjectManager::cacheUniformLocations()
 {
-    for (auto &obj : objects)
-    {
-        obj.distanceToCamera = glm::length(obj.position - cameraPos);
-    }
-}
+    if (shaderProgram == 0) return;
 
-void ObjectManager::cullObjects(float cullDistance)
-{
-    for (auto &obj : objects)
-    {
-        obj.isVisible = obj.distanceToCamera <= cullDistance;
-    }
-}
+    m_uniforms.view = glGetUniformLocation(shaderProgram, "uView");
+    m_uniforms.projection = glGetUniformLocation(shaderProgram, "uProj");
+    m_uniforms.viewPos = glGetUniformLocation(shaderProgram, "uViewPos");
+    m_uniforms.objectColor = glGetUniformLocation(shaderProgram, "uObjectColor");
+    m_uniforms.useTexture = glGetUniformLocation(shaderProgram, "uUseTexture");
+    m_uniforms.flashlightOn = glGetUniformLocation(shaderProgram, "uFlashlightOn");
+    m_uniforms.flashlightPos = glGetUniformLocation(shaderProgram, "uFlashlightPos");
+    m_uniforms.flashlightDir = glGetUniformLocation(shaderProgram, "uFlashlightDir");
+    m_uniforms.flashlightCutoff = glGetUniformLocation(shaderProgram, "uFlashlightCutoff");
+    m_uniforms.flashlightBrightness = glGetUniformLocation(shaderProgram, "uFlashlightBrightness");
+    m_uniforms.flashlightColor = glGetUniformLocation(shaderProgram, "uFlashlightColor");
+    m_uniforms.fogEnabled = glGetUniformLocation(shaderProgram, "uFogEnabled");
+    m_uniforms.fogColor = glGetUniformLocation(shaderProgram, "uFogColor");
+    m_uniforms.fogDensity = glGetUniformLocation(shaderProgram, "uFogDensity");
+    m_uniforms.fogDesaturationStrength = glGetUniformLocation(shaderProgram, "uFogDesaturationStrength");
+    m_uniforms.fogAbsorptionDensity = glGetUniformLocation(shaderProgram, "uFogAbsorptionDensity");
+    m_uniforms.fogAbsorptionStrength = glGetUniformLocation(shaderProgram, "uFogAbsorptionStrength");
+    m_uniforms.backgroundColor = glGetUniformLocation(shaderProgram, "uBackgroundColor");
 
-bool ObjectManager::isValidPosition(const glm::vec3 &pos)
-{
-    // Check world bounds
-    if (std::abs(pos.x) > WORLD_SIZE || std::abs(pos.z) > WORLD_SIZE)
-    {
-        return false;
-    }
-
-    // Check minimum distance from other objects
-    for (const auto &other : objects)
-    {
-        if (glm::length(pos - other.position) < MIN_DISTANCE)
-        {
-            return false;
-        }
-    }
-
-    return true;
+    std::cout << "[ObjectManager] Cached " << 18 << " uniform locations" << std::endl;
 }
 
 void ObjectManager::setupLODGeometry()
 {
-    // Generate geometry for each LOD level
-    // Use randomized high LOD to prevent GPU batching optimization
-    highLodPrism.generateRandomizedHighLODGeometry(12345); // Use a fixed seed for consistency
+    highLodPrism.generateRandomizedHighLODGeometry(12345);
     mediumLodPrism.generateGeometry(LODLevel::MEDIUM);
     lowLodPrism.generateGeometry(LODLevel::LOW);
 
-    // Setup VAOs for each LOD level (with instance buffers)
     setupLODVAO(highLodVao, highLodVbo, highLodEbo, highLodInstanceVbo, highLodPrism);
     setupLODVAO(mediumLodVao, mediumLodVbo, mediumLodEbo, mediumLodInstanceVbo, mediumLodPrism);
     setupLODVAO(lowLodVao, lowLodVbo, lowLodEbo, lowLodInstanceVbo, lowLodPrism);
 
-    std::cout << "LOD Geometry: High=" << highLodPrism.getTriangleCount()
-              << " triangles, Medium=" << mediumLodPrism.getTriangleCount()
-              << " triangles, Low=" << lowLodPrism.getTriangleCount() << " triangles" << std::endl;
+    std::cout << "[ObjectManager] LOD Geometry: High=" << highLodPrism.getTriangleCount()
+              << " tris, Medium=" << mediumLodPrism.getTriangleCount()
+              << " tris, Low=" << lowLodPrism.getTriangleCount() << " tris" << std::endl;
 }
 
 void ObjectManager::setupLODVAO(GLuint &vao, GLuint &vbo, GLuint &ebo, GLuint &instanceVbo, const Prism &prism)
@@ -483,7 +296,7 @@ void ObjectManager::setupLODVAO(GLuint &vao, GLuint &vbo, GLuint &ebo, GLuint &i
 
     std::size_t vec4Size = sizeof(glm::vec4);
     GLsizei stride = sizeof(glm::mat4);
-    // Attribute locations 3,4,5,6 for iModel
+
     glEnableVertexAttribArray(3);
     glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride, (void *)0);
     glVertexAttribDivisor(3, 1);
@@ -525,19 +338,14 @@ void ObjectManager::renderLODLevelInstanced(LODLevel lod, const std::vector<glm:
         break;
     }
 
-    // Safety check
     if (!prism || vao == 0 || instanceVboPtr == nullptr)
-    {
         return;
-    }
 
     glBindVertexArray(vao);
 
-    // Update instance buffer with matrices
     glBindBuffer(GL_ARRAY_BUFFER, *instanceVboPtr);
     glBufferData(GL_ARRAY_BUFFER, instanceMatrices.size() * sizeof(glm::mat4), instanceMatrices.data(), GL_DYNAMIC_DRAW);
 
-    // Draw instanced
     glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(prism->getIndices().size()), GL_UNSIGNED_INT, 0, static_cast<GLsizei>(instanceMatrices.size()));
 
     glBindVertexArray(0);
@@ -545,26 +353,47 @@ void ObjectManager::renderLODLevelInstanced(LODLevel lod, const std::vector<glm:
 
 void ObjectManager::cleanup()
 {
+    // Unsubscribe from events
+    unsubscribeFromEvents();
+
+    // Destroy our entities in the global registry
+    auto& registry = ECSWorld::getRegistry();
+    for (auto entity : m_entities)
+    {
+        if (registry.isValid(entity))
+        {
+            registry.destroy(entity);
+        }
+    }
+    m_entities.clear();
+
+    m_lodSystem = nullptr;
+    m_cullingSystem = nullptr;
+
+    // Clean up OpenGL resources
     if (highLodVao != 0)
     {
         glDeleteVertexArrays(1, &highLodVao);
         glDeleteBuffers(1, &highLodVbo);
         glDeleteBuffers(1, &highLodEbo);
-        highLodVao = highLodVbo = highLodEbo = 0;
+        glDeleteBuffers(1, &highLodInstanceVbo);
+        highLodVao = highLodVbo = highLodEbo = highLodInstanceVbo = 0;
     }
     if (mediumLodVao != 0)
     {
         glDeleteVertexArrays(1, &mediumLodVao);
         glDeleteBuffers(1, &mediumLodVbo);
         glDeleteBuffers(1, &mediumLodEbo);
-        mediumLodVao = mediumLodVbo = mediumLodEbo = 0;
+        glDeleteBuffers(1, &mediumLodInstanceVbo);
+        mediumLodVao = mediumLodVbo = mediumLodEbo = mediumLodInstanceVbo = 0;
     }
     if (lowLodVao != 0)
     {
         glDeleteVertexArrays(1, &lowLodVao);
         glDeleteBuffers(1, &lowLodVbo);
         glDeleteBuffers(1, &lowLodEbo);
-        lowLodVao = lowLodVbo = lowLodEbo = 0;
+        glDeleteBuffers(1, &lowLodInstanceVbo);
+        lowLodVao = lowLodVbo = lowLodEbo = lowLodInstanceVbo = 0;
     }
     if (shaderProgram != 0)
     {
@@ -593,30 +422,22 @@ void ObjectManager::updatePerformanceStats(float deltaTime)
 
 void ObjectManager::printPerformanceStats()
 {
-    // Count objects by LOD level
-    int highLodCount = 0, mediumLodCount = 0, lowLodCount = 0;
-    for (const auto &obj : objects)
-    {
-        if (!obj.isVisible)
-            continue;
+    auto& registry = ECSWorld::getRegistry();
 
-        switch (obj.currentLOD)
-        {
-        case LODLevel::HIGH:
-            highLodCount++;
-            break;
-        case LODLevel::MEDIUM:
-            mediumLodCount++;
-            break;
-        case LODLevel::LOW:
-            lowLodCount++;
-            break;
+    int highLodCount = 0, mediumLodCount = 0, lowLodCount = 0;
+
+    registry.each<ecs::RenderableComponent, ecs::LODComponent>([&](ecs::RenderableComponent& renderable, ecs::LODComponent& lod) {
+        if (!renderable.visible) return;
+        switch (lod.currentLevel) {
+            case LODLevel::HIGH: highLodCount++; break;
+            case LODLevel::MEDIUM: mediumLodCount++; break;
+            case LODLevel::LOW: lowLodCount++; break;
         }
-    }
+    });
 
     int totalVisible = highLodCount + mediumLodCount + lowLodCount;
+    if (totalVisible == 0) totalVisible = 1;
 
-    // Calculate geometry complexity
     size_t highVertices = highLodCount * highLodPrism.getVertexCount();
     size_t mediumVertices = mediumLodCount * mediumLodPrism.getVertexCount();
     size_t lowVertices = lowLodCount * lowLodPrism.getVertexCount();
@@ -630,15 +451,183 @@ void ObjectManager::printPerformanceStats()
     std::cout << "\n=== PERFORMANCE STATS ===" << std::endl;
     std::cout << "FPS: " << std::fixed << std::setprecision(1) << fps << std::endl;
     std::cout << "Frame Time: " << std::fixed << std::setprecision(3) << (frameTime * 1000.0f) << "ms" << std::endl;
-    std::cout << "Total Objects: " << objects.size() << std::endl;
+    std::cout << "Total Objects: " << m_entities.size() << std::endl;
     std::cout << "Visible Objects: " << totalVisible << std::endl;
     std::cout << "LOD Distribution:" << std::endl;
-    std::cout << "  High LOD: " << highLodCount << " (" << std::fixed << std::setprecision(1) << (highLodCount * 100.0f / totalVisible) << "%)" << std::endl;
-    std::cout << "  Medium LOD: " << mediumLodCount << " (" << std::fixed << std::setprecision(1) << (mediumLodCount * 100.0f / totalVisible) << "%)" << std::endl;
-    std::cout << "  Low LOD: " << lowLodCount << " (" << std::fixed << std::setprecision(1) << (lowLodCount * 100.0f / totalVisible) << "%)" << std::endl;
-    std::cout << "Geometry Complexity:" << std::endl;
-    std::cout << "  Total Vertices: " << totalVertices << " (H:" << highVertices << " M:" << mediumVertices << " L:" << lowVertices << ")" << std::endl;
-    std::cout << "  Total Triangles: " << totalTriangles << " (H:" << highTriangles << " M:" << mediumTriangles << " L:" << lowTriangles << ")" << std::endl;
-    std::cout << "Culled: " << (objects.size() - totalVisible) << std::endl;
+    std::cout << "  High: " << highLodCount << " (" << std::fixed << std::setprecision(1) << (highLodCount * 100.0f / totalVisible) << "%)" << std::endl;
+    std::cout << "  Medium: " << mediumLodCount << " (" << std::fixed << std::setprecision(1) << (mediumLodCount * 100.0f / totalVisible) << "%)" << std::endl;
+    std::cout << "  Low: " << lowLodCount << " (" << std::fixed << std::setprecision(1) << (lowLodCount * 100.0f / totalVisible) << "%)" << std::endl;
+    std::cout << "Geometry: " << totalVertices << " vertices, " << totalTriangles << " triangles" << std::endl;
+    std::cout << "Culled: " << (m_entities.size() - totalVisible) << std::endl;
     std::cout << "========================" << std::endl;
+}
+
+// ============================================================================
+// ECS Implementation
+// ============================================================================
+
+ecs::Entity ObjectManager::createPrismEntity(const glm::vec3& position)
+{
+    auto& registry = ECSWorld::getRegistry();
+    ecs::Entity entity = registry.create();
+
+    // Add Transform component
+    auto& transform = registry.add<ecs::TransformComponent>(entity, position);
+    transform.updateModelMatrix();
+
+    // Add Renderable component
+    auto& renderable = registry.add<ecs::RenderableComponent>(entity, ecs::RenderableType::INSTANCED_PRISM);
+    renderable.shaderProgram = shaderProgram;
+
+    // Add LOD component with distance thresholds
+    registry.add<ecs::LODComponent>(entity, HIGH_LOD_DISTANCE, MEDIUM_LOD_DISTANCE);
+
+    // Add BatchGroup component for instancing
+    registry.add<ecs::BatchGroupComponent>(entity, ecs::BatchID::PRISM);
+
+    return entity;
+}
+
+void ObjectManager::createPrismEntities(int count)
+{
+    m_entities.clear();
+    m_entities.reserve(count);
+
+    float gridSpacing = MIN_DISTANCE;
+    int gridSize = static_cast<int>(std::ceil(std::sqrt(count)));
+
+    float startX = -(gridSize * gridSpacing) / 2.0f;
+    float startZ = -(gridSize * gridSpacing) / 2.0f;
+
+    int entitiesCreated = 0;
+    const int progressInterval = std::max(1, count / 20);
+
+    std::cout << "[ObjectManager] Creating " << count << " prism entities..." << std::endl;
+
+    for (int row = 0; row < gridSize && entitiesCreated < count; row++)
+    {
+        for (int col = 0; col < gridSize && entitiesCreated < count; col++)
+        {
+            glm::vec3 position(
+                startX + col * gridSpacing,
+                0.5f,
+                startZ + row * gridSpacing);
+
+            ecs::Entity entity = createPrismEntity(position);
+            m_entities.push_back(entity);
+            entitiesCreated++;
+
+            if (entitiesCreated % progressInterval == 0 || entitiesCreated == count)
+            {
+                float progress = (float)entitiesCreated / count * 100.0f;
+                int barWidth = 50;
+                int filled = static_cast<int>((progress / 100.0f) * barWidth);
+
+                std::cout << "\r[";
+                for (int i = 0; i < barWidth; i++)
+                {
+                    if (i < filled) std::cout << "=";
+                    else if (i == filled) std::cout << ">";
+                    else std::cout << " ";
+                }
+                std::cout << "] " << std::fixed << std::setprecision(1) << progress << "%" << std::flush;
+            }
+        }
+    }
+
+    std::cout << std::endl;
+}
+
+void ObjectManager::gatherInstanceMatrices(std::vector<glm::mat4>& highInstances,
+                                           std::vector<glm::mat4>& mediumInstances,
+                                           std::vector<glm::mat4>& lowInstances)
+{
+    auto& registry = ECSWorld::getRegistry();
+
+    registry.each<ecs::TransformComponent, ecs::RenderableComponent, ecs::LODComponent>(
+        [&](ecs::TransformComponent& transform, ecs::RenderableComponent& renderable, ecs::LODComponent& lod) {
+            if (!renderable.visible) return;
+
+            switch (lod.currentLevel) {
+                case LODLevel::HIGH:
+                    highInstances.push_back(transform.modelMatrix);
+                    break;
+                case LODLevel::MEDIUM:
+                    mediumInstances.push_back(transform.modelMatrix);
+                    break;
+                case LODLevel::LOW:
+                    lowInstances.push_back(transform.modelMatrix);
+                    break;
+            }
+        });
+}
+
+// =========== Event Handling ===========
+
+void ObjectManager::subscribeToEvents()
+{
+    auto& bus = events::EventBus::instance();
+
+    // Subscribe to fog configuration changes
+    m_fogSubscription = bus.subscribe<events::FogConfigChangedEvent>(
+        this, &ObjectManager::onFogConfigChanged);
+
+    // Subscribe to performance preset changes
+    m_performanceSubscription = bus.subscribe<events::PerformancePresetChangedEvent>(
+        this, &ObjectManager::onPerformancePresetChanged);
+
+    std::cout << "[ObjectManager] Subscribed to config events" << std::endl;
+}
+
+void ObjectManager::unsubscribeFromEvents()
+{
+    auto& bus = events::EventBus::instance();
+
+    if (m_fogSubscription != 0)
+    {
+        bus.unsubscribe(m_fogSubscription);
+        m_fogSubscription = 0;
+    }
+
+    if (m_performanceSubscription != 0)
+    {
+        bus.unsubscribe(m_performanceSubscription);
+        m_performanceSubscription = 0;
+    }
+}
+
+void ObjectManager::onFogConfigChanged(const events::FogConfigChangedEvent& event)
+{
+    // Automatically sync fog settings from ConfigManager
+    fogEnabled = event.enabled;
+    fogColor = event.color;
+    fogDensity = event.density;
+    fogDesaturationStrength = event.desaturationStrength;
+    fogAbsorptionDensity = event.absorptionDensity;
+    fogAbsorptionStrength = event.absorptionStrength;
+}
+
+void ObjectManager::onPerformancePresetChanged(const events::PerformancePresetChangedEvent& event)
+{
+    // Automatically sync performance settings from ConfigManager
+    cullingEnabled = event.frustumCullingEnabled;
+    lodEnabled = event.lodEnabled;
+
+    // Update systems
+    if (m_cullingSystem)
+    {
+        m_cullingSystem->setCullingEnabled(cullingEnabled);
+    }
+    if (m_lodSystem)
+    {
+        m_lodSystem->setLODEnabled(lodEnabled);
+    }
+
+    // Reinitialize with new object count if it changed
+    if (event.objectCount != static_cast<int>(m_entities.size()) && isInitialized)
+    {
+        std::cout << "[ObjectManager] Performance preset changed, reinitializing with "
+                  << event.objectCount << " objects" << std::endl;
+        initialize(event.objectCount);
+    }
 }
