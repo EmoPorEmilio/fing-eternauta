@@ -1,13 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(powershell:*)",
-      "Bash(timeout:*)",
-      "Bash(msbuild:*)",
-      "Bash(done)",
-      "Bash(cmd /c \"msbuild OpenGL-avanzado.sln /p:Configuration=Debug /p:Platform=x64 /m /v:minimal\")",
-      "Bash(start \"\" \".\\x64\\Release\\OpenGL-avanzado.exe\")",
-      "Bash(start \"\" \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta\\x64\\Debug\\OpenGL-avanzado.exe\")"
+      "Bash(Select-String -Pattern 'SKIN.*node26')"
     ],
     "deny": [],
     "ask": []

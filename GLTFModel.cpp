@@ -1042,21 +1042,29 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
     }
     if (m_animEnabled && !m_animations.empty())
     {
-        // Print animation status once per second
-        static float lastDebugTime = -1.0f;
-        if (m_animTime - lastDebugTime > 1.0f || m_animTime < lastDebugTime)
-        {
-            std::cout << "[ANIM] time=" << m_animTime << "/" << m_animations[0].duration
-                      << ", channels=" << m_animations[0].channels.size() << std::endl;
-            lastDebugTime = m_animTime;
-        }
-
         float t = m_animTime;
         const AnimationClip &clip = m_animations[0];
         if (clip.duration > 0.0f)
         {
             // Loop
             t = fmodf(t, clip.duration);
+        }
+
+        // Print animation status once per second
+        static float lastDebugTime = -1.0f;
+        if (m_animTime - lastDebugTime > 1.0f || m_animTime < lastDebugTime)
+        {
+            std::cout << "[ANIM] time=" << m_animTime << "/" << clip.duration
+                      << ", looped_t=" << t
+                      << ", channels=" << clip.channels.size() << std::endl;
+            // Print first few channels and their target nodes
+            for (size_t i = 0; i < std::min((size_t)5, clip.channels.size()); ++i)
+            {
+                std::cout << "[ANIM] channel[" << i << "]: targetNode=" << clip.channels[i].targetNode
+                          << ", path=" << (clip.channels[i].path == PATH_T ? "T" : (clip.channels[i].path == PATH_R ? "R" : "S"))
+                          << std::endl;
+            }
+            lastDebugTime = m_animTime;
         }
         // Start from base TRS
         // Rebuild locals per node - CRITICAL FIX: Expand to accommodate all animation target nodes
@@ -1096,10 +1104,21 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
             m_nodeChildren.resize(requiredSize);
         }
 
-        // Apply animated channels
+        // Create temporary arrays for animated T/R/S - start from base values
+        std::vector<glm::vec3> animT(requiredSize);
+        std::vector<glm::quat> animR(requiredSize);
+        std::vector<glm::vec3> animS(requiredSize);
+        for (size_t i = 0; i < requiredSize; ++i)
+        {
+            animT[i] = m_nodeBaseT[i];
+            animR[i] = m_nodeBaseR[i];
+            animS[i] = m_nodeBaseS[i];
+        }
+
+        // Apply animated channels - accumulate into T/R/S arrays, don't overwrite locals yet
         for (const auto &ch : clip.channels)
         {
-            if (ch.targetNode < 0 || ch.targetNode >= (int)locals.size())
+            if (ch.targetNode < 0 || ch.targetNode >= (int)requiredSize)
                 continue;
             const AnimSampler &samp = clip.samplers[ch.samplerIndex];
             if (samp.input.empty())
@@ -1132,25 +1151,28 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
             {
                 glm::vec3 v0 = glm::vec3(samp.output[k1]);
                 glm::vec3 v1 = glm::vec3(samp.output[k2]);
-                glm::vec3 v = glm::mix(v0, v1, a);
-                glm::mat4 trs = glm::translate(glm::mat4(1.0f), v) * glm::mat4_cast(m_nodeBaseR[ch.targetNode]) * glm::scale(glm::mat4(1.0f), m_nodeBaseS[ch.targetNode]);
-                locals[ch.targetNode] = trs;
+                animT[ch.targetNode] = glm::mix(v0, v1, a);
             }
             else if (ch.path == PATH_R)
             {
                 glm::quat q0 = glm::quat(samp.output[k1].w, samp.output[k1].x, samp.output[k1].y, samp.output[k1].z);
                 glm::quat q1 = glm::quat(samp.output[k2].w, samp.output[k2].x, samp.output[k2].y, samp.output[k2].z);
-                glm::quat q = glm::slerp(q0, q1, a);
-                glm::mat4 trs = glm::translate(glm::mat4(1.0f), m_nodeBaseT[ch.targetNode]) * glm::mat4_cast(q) * glm::scale(glm::mat4(1.0f), m_nodeBaseS[ch.targetNode]);
-                locals[ch.targetNode] = trs;
+                animR[ch.targetNode] = glm::slerp(q0, q1, a);
             }
             else // PATH_S
             {
                 glm::vec3 s0 = glm::vec3(samp.output[k1]);
                 glm::vec3 s1 = glm::vec3(samp.output[k2]);
-                glm::vec3 s = glm::mix(s0, s1, a);
-                glm::mat4 trs = glm::translate(glm::mat4(1.0f), m_nodeBaseT[ch.targetNode]) * glm::mat4_cast(m_nodeBaseR[ch.targetNode]) * glm::scale(glm::mat4(1.0f), s);
-                locals[ch.targetNode] = trs;
+                animS[ch.targetNode] = glm::mix(s0, s1, a);
+            }
+        }
+
+        // Now build locals from the accumulated animated T/R/S
+        for (size_t i = 0; i < requiredSize; ++i)
+        {
+            if (i < locals.size())
+            {
+                locals[i] = glm::translate(glm::mat4(1.0f), animT[i]) * glm::mat4_cast(animR[i]) * glm::scale(glm::mat4(1.0f), animS[i]);
             }
         }
         // Rebuild global transforms from locals using the stored node hierarchy
@@ -1248,10 +1270,19 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
     GLint locJointMatrices = glGetUniformLocation(shaderProgram, "uJointMatrices[0]");
 
     // Render each primitive
+    static int primDebugCount = 0;
     for (const auto &primitive : m_primitives)
     {
         if (!primitive.isInitialized)
             continue;
+
+        // Debug: Print primitive skinIndex once
+        if (primDebugCount++ < 5)
+        {
+            std::cout << "[RENDER] primitive.skinIndex=" << primitive.skinIndex
+                      << ", m_animEnabled=" << m_animEnabled
+                      << ", m_skins.size()=" << m_skins.size() << std::endl;
+        }
 
         // Upload joint palette if skinned AND animation is enabled
         // When animation is disabled, bypass skinning to show raw mesh vertices
@@ -1276,6 +1307,43 @@ void GLTFModel::render(const glm::mat4 &view, const glm::mat4 &projection,
                 glUniform1i(locSkinned, 1);
                 glUniform1i(locJointCount, jointCount);
                 glUniformMatrix4fv(locJointMatrices, jointCount, GL_FALSE, glm::value_ptr(palette[0]));
+
+                // Debug: Print skinning info once per second
+                static float lastSkinDebugTime = -1.0f;
+                if (m_animTime - lastSkinDebugTime > 1.0f || m_animTime < lastSkinDebugTime)
+                {
+                    std::cout << "[SKIN] primitive.skinIndex=" << primitive.skinIndex
+                              << ", jointCount=" << jointCount
+                              << ", uSkinned loc=" << locSkinned
+                              << ", uJointMatrices loc=" << locJointMatrices << std::endl;
+                    // Print node 26 (Hips - directly animated) and node 4 (tail - also animated)
+                    // to verify animation is updating global transforms
+                    if (m_nodeGlobalTransforms.size() > 26)
+                    {
+                        std::cout << "[SKIN] node26(Hips)[3]=(" << m_nodeGlobalTransforms[26][3][0]
+                                  << "," << m_nodeGlobalTransforms[26][3][1]
+                                  << "," << m_nodeGlobalTransforms[26][3][2] << ")"
+                                  << ", node4(tail)[3]=(" << m_nodeGlobalTransforms[4][3][0]
+                                  << "," << m_nodeGlobalTransforms[4][3][1]
+                                  << "," << m_nodeGlobalTransforms[4][3][2] << ")"
+                                  << ", node0(tail3)[3]=(" << m_nodeGlobalTransforms[0][3][0]
+                                  << "," << m_nodeGlobalTransforms[0][3][1]
+                                  << "," << m_nodeGlobalTransforms[0][3][2] << ")" << std::endl;
+                    }
+                    lastSkinDebugTime = m_animTime;
+                }
+            }
+            else
+            {
+                // Debug: Uniform locations not found
+                static bool warnedOnce = false;
+                if (!warnedOnce)
+                {
+                    std::cout << "[SKIN WARNING] Uniform locations not found! locSkinned=" << locSkinned
+                              << ", locJointCount=" << locJointCount
+                              << ", locJointMatrices=" << locJointMatrices << std::endl;
+                    warnedOnce = true;
+                }
             }
         }
         else if (locSkinned >= 0)
