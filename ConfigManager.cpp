@@ -385,6 +385,41 @@ void ConfigManager::publishDebugVisualsChanged() {
     ));
 }
 
+// ==================== Models ====================
+
+void ConfigManager::setModels(const ModelsConfig& config) {
+    m_models = config;
+    publishModelsChanged();
+}
+
+void ConfigManager::setModelWalking(const ModelInstanceConfig& config) {
+    m_models.walking = config;
+    publishModelsChanged();
+}
+
+void ConfigManager::setModelMonster2(const ModelInstanceConfig& config) {
+    m_models.monster2 = config;
+    publishModelsChanged();
+}
+
+void ConfigManager::publishModelsChanged() {
+    events::ModelInstanceSettings walking{
+        m_models.walking.enabled,
+        m_models.walking.position,
+        m_models.walking.scale,
+        m_models.walking.animationEnabled,
+        m_models.walking.animationSpeed
+    };
+    events::ModelInstanceSettings monster2{
+        m_models.monster2.enabled,
+        m_models.monster2.position,
+        m_models.monster2.scale,
+        m_models.monster2.animationEnabled,
+        m_models.monster2.animationSpeed
+    };
+    events::EventBus::instance().publish(events::ModelsConfigChangedEvent(walking, monster2));
+}
+
 // ==================== Persistence ====================
 
 bool ConfigManager::saveToFile(const std::string& filepath) {

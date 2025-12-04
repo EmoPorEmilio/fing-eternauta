@@ -126,17 +126,20 @@ private:
     float m_normalStrength = 0.276f;
     float m_roughnessBias = 0.0f;
 
-    // Model transforms (for DemoScene - not used in EmptyScene)
-    float m_fingPos[3] = {0.0f, 119.900f, -222.300f};
-    float m_fingScale = 21.3f;
-    float m_militaryPos[3] = {0.0f, 0.0f, -100.0f};
-    float m_militaryScale = 8.5f;
-    bool m_militaryAnim = true;
-    float m_militaryAnimSpeed = 1.0f;
-    float m_walkingPos[3] = {50.0f, 0.0f, -50.0f};
-    float m_walkingScale = 5.0f;
+    // Model transforms (for DemoScene)
+    // Walking model (model_Animation_Walking_withSkin.glb)
+    bool m_walkingEnabled = true;
+    float m_walkingPos[3] = {-3.0f, 0.0f, -5.0f};
+    float m_walkingScale = 1000.0f;
     bool m_walkingAnim = true;
     float m_walkingAnimSpeed = 1.0f;
+
+    // Monster-2 model (monster-2.glb)
+    bool m_monster2Enabled = true;
+    float m_monster2Pos[3] = {3.0f, 0.0f, -5.0f};
+    float m_monster2Scale = 1000.0f;
+    bool m_monster2Anim = true;
+    float m_monster2AnimSpeed = 1.0f;
 
     // Flashlight (sync with ConfigManager)
     float m_flashlightBrightness = 2.0f;

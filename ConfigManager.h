@@ -130,6 +130,21 @@ public:
         float mouseSensitivity = 0.1f;
     };
 
+    // Model instance configuration
+    struct ModelInstanceConfig {
+        bool enabled = true;
+        glm::vec3 position = glm::vec3(0.0f);
+        float scale = 1000.0f;
+        bool animationEnabled = true;
+        float animationSpeed = 1.0f;
+    };
+
+    // Models configuration (scene models)
+    struct ModelsConfig {
+        ModelInstanceConfig walking;   // model_Animation_Walking_withSkin.glb
+        ModelInstanceConfig monster2;  // monster-2.glb
+    };
+
     // Singleton access
     static ConfigManager& instance();
 
@@ -199,6 +214,12 @@ public:
     const CameraConfig& getCamera() const { return m_camera; }
     void setCamera(const CameraConfig& config);
 
+    // Models getters/setters
+    const ModelsConfig& getModels() const { return m_models; }
+    void setModels(const ModelsConfig& config);
+    void setModelWalking(const ModelInstanceConfig& config);
+    void setModelMonster2(const ModelInstanceConfig& config);
+
     // Persistence (future use)
     bool saveToFile(const std::string& filepath);
     bool loadFromFile(const std::string& filepath);
@@ -219,6 +240,7 @@ private:
     void publishCameraChanged();
     void publishMaterialChanged();
     void publishDebugVisualsChanged();
+    void publishModelsChanged();
 
     FogConfig m_fog;
     LightingConfig m_lighting;
@@ -229,4 +251,5 @@ private:
     DebugConfig m_debug;
     DebugVisualsConfig m_debugVisuals;
     CameraConfig m_camera;
+    ModelsConfig m_models;
 };

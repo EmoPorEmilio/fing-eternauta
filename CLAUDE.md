@@ -8,11 +8,11 @@ This is a Visual Studio 2022 C++ project (Windows x64, v143 toolset).
 
 **Build via MSBuild:**
 ```cmd
-msbuild OpenGL-avanzado.sln /p:Configuration=Debug /p:Platform=x64
-msbuild OpenGL-avanzado.sln /p:Configuration=Release /p:Platform=x64
+msbuild fing-eternauta.sln /p:Configuration=Debug /p:Platform=x64
+msbuild fing-eternauta.sln /p:Configuration=Release /p:Platform=x64
 ```
 
-**Run:** `x64/Debug/OpenGL-avanzado.exe` or `x64/Release/OpenGL-avanzado.exe`
+**Run:** `x64/Debug/fing-eternauta.exe` or `x64/Release/fing-eternauta.exe`
 
 The executable must be run from the repository root so shaders and assets are found.
 
@@ -68,7 +68,7 @@ systems/          ECS system implementations
 events/           Event types and EventBus
 tests/            Unit tests (math, components)
 docs/             Architecture documentation
-OpenGL-basico/    VS project files
+fing-eternauta/   VS project files
 ```
 
 ## Dependencies

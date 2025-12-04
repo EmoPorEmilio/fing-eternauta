@@ -296,11 +296,62 @@ void UIManager::renderCameraPanel(Camera& camera) {
 }
 
 void UIManager::renderObjectsPanel() {
-    ImGui::Text("Scene Objects");
+    ImGui::Text("Scene Models");
     ImGui::Separator();
-    ImGui::Text("Test Cube at origin");
-    ImGui::Text("Position: (0, 1, 0)");
-    ImGui::Text("Size: 2x2x2");
+
+    bool modelsChanged = false;
+
+    // Walking Model (Monster 1)
+    if (ImGui::CollapsingHeader("Walking Monster", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::PushID("walking");
+        if (ImGui::Checkbox("Enabled", &m_walkingEnabled)) modelsChanged = true;
+        if (m_walkingEnabled) {
+            ImGui::Indent();
+            if (ImGui::DragFloat3("Position", m_walkingPos, 0.5f, -100.0f, 100.0f, "%.1f")) modelsChanged = true;
+            if (ImGui::DragFloat("Scale", &m_walkingScale, 10.0f, 100.0f, 5000.0f, "%.0f")) modelsChanged = true;
+            if (ImGui::Checkbox("Animation", &m_walkingAnim)) modelsChanged = true;
+            if (m_walkingAnim) {
+                if (ImGui::SliderFloat("Anim Speed", &m_walkingAnimSpeed, 0.1f, 3.0f, "%.2fx")) modelsChanged = true;
+            }
+            ImGui::Unindent();
+        }
+        ImGui::PopID();
+    }
+
+    // Monster-2 Model
+    if (ImGui::CollapsingHeader("Monster 2", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::PushID("monster2");
+        if (ImGui::Checkbox("Enabled", &m_monster2Enabled)) modelsChanged = true;
+        if (m_monster2Enabled) {
+            ImGui::Indent();
+            if (ImGui::DragFloat3("Position", m_monster2Pos, 0.5f, -100.0f, 100.0f, "%.1f")) modelsChanged = true;
+            if (ImGui::DragFloat("Scale", &m_monster2Scale, 10.0f, 100.0f, 5000.0f, "%.0f")) modelsChanged = true;
+            if (ImGui::Checkbox("Animation", &m_monster2Anim)) modelsChanged = true;
+            if (m_monster2Anim) {
+                if (ImGui::SliderFloat("Anim Speed", &m_monster2AnimSpeed, 0.1f, 3.0f, "%.2fx")) modelsChanged = true;
+            }
+            ImGui::Unindent();
+        }
+        ImGui::PopID();
+    }
+
+    // Publish changes to ConfigManager
+    if (modelsChanged) {
+        ConfigManager::ModelsConfig cfg;
+        cfg.walking.enabled = m_walkingEnabled;
+        cfg.walking.position = glm::vec3(m_walkingPos[0], m_walkingPos[1], m_walkingPos[2]);
+        cfg.walking.scale = m_walkingScale;
+        cfg.walking.animationEnabled = m_walkingAnim;
+        cfg.walking.animationSpeed = m_walkingAnimSpeed;
+
+        cfg.monster2.enabled = m_monster2Enabled;
+        cfg.monster2.position = glm::vec3(m_monster2Pos[0], m_monster2Pos[1], m_monster2Pos[2]);
+        cfg.monster2.scale = m_monster2Scale;
+        cfg.monster2.animationEnabled = m_monster2Anim;
+        cfg.monster2.animationSpeed = m_monster2AnimSpeed;
+
+        ConfigManager::instance().setModels(cfg);
+    }
 }
 
 void UIManager::renderMaterialsPanel() {

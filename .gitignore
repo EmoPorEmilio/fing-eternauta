@@ -1,6 +1,7 @@
 # OS artifacts
 Thumbs.db
 Desktop.ini
+nul
 
 # Visual Studio
 .vs/
@@ -17,10 +18,10 @@ Desktop.ini
 /x86/
 /Debug/
 /Release/
-/OpenGL-basico/x64/
-/OpenGL-basico/Debug/
-/OpenGL-basico/Release/
-/OpenGL-basico/CUDAbuild/
+/fing-eternauta/x64/
+/fing-eternauta/Debug/
+/fing-eternauta/Release/
+/fing-eternauta/CUDAbuild/
 [Bb]uild/
 [bB]in/
 obj/

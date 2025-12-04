@@ -46,12 +46,20 @@
 class Application
 {
 public:
+    // Application render modes
+    enum class RenderMode { EDITOR, WORLD };
+
     Application();
     ~Application();
 
     bool initialize();
     void run();
     void cleanup();
+
+    // Mode control
+    RenderMode getRenderMode() const { return m_renderMode; }
+    void setRenderMode(RenderMode mode) { m_renderMode = mode; }
+    void toggleRenderMode() { m_renderMode = (m_renderMode == RenderMode::EDITOR) ? RenderMode::WORLD : RenderMode::EDITOR; }
 
     // Key debouncing structure - moved here so it can be used in function signatures
     struct KeyState
@@ -100,6 +108,9 @@ private:
     bool uiOpen = true;  // UI visible by default
     bool cursorCaptured = false;  // Start with cursor free for UI
     bool imguiInitialized = false;
+
+    // Render mode (Editor vs World)
+    RenderMode m_renderMode = RenderMode::EDITOR;
 
     // Sidebar panel state
     enum class Panel { None, Camera, Objects, Materials, Lights, Viewport, System };

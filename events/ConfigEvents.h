@@ -124,4 +124,22 @@ struct CameraConfigChangedEvent : public EventBase<CameraConfigChangedEvent> {
         : fov(f), nearPlane(n), farPlane(fa), moveSpeed(ms), mouseSensitivity(sens) {}
 };
 
+// Model instance configuration (for per-model settings)
+struct ModelInstanceSettings {
+    bool enabled;
+    glm::vec3 position;
+    float scale;
+    bool animationEnabled;
+    float animationSpeed;
+};
+
+// Models configuration changed
+struct ModelsConfigChangedEvent : public EventBase<ModelsConfigChangedEvent> {
+    ModelInstanceSettings walking;
+    ModelInstanceSettings monster2;
+
+    ModelsConfigChangedEvent(const ModelInstanceSettings& w, const ModelInstanceSettings& m2)
+        : walking(w), monster2(m2) {}
+};
+
 } // namespace events

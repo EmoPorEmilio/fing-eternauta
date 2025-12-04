@@ -331,7 +331,32 @@ void Application::render()
         ImGui::NewFrame();
     }
 
-    if (imguiInitialized)
+    // In WORLD mode, skip all editor UI
+    if (m_renderMode == RenderMode::WORLD)
+    {
+        // Minimal HUD in World mode - just show FPS and mode toggle hint
+        if (imguiInitialized)
+        {
+            ImGuiIO& io = ImGui::GetIO();
+            float windowWidth = io.DisplaySize.x;
+
+            // Small overlay in corner
+            ImGui::SetNextWindowPos(ImVec2(windowWidth - 200, 10));
+            ImGui::SetNextWindowSize(ImVec2(190, 45));
+            ImGui::SetNextWindowBgAlpha(0.5f);
+            ImGui::Begin("##WorldModeHUD", nullptr,
+                ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoDecoration);
+
+            const auto& stats = PerformanceProfiler::getCurrentFrame();
+            float fps = (stats.frameTime > 0.0f) ? (1000.0f / stats.frameTime) : 0.0f;
+            ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f), "FPS: %.0f", fps);
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Tab: Editor Mode");
+            ImGui::End();
+        }
+    }
+    else if (imguiInitialized)
     {
         ImGuiIO& io = ImGui::GetIO();
         float windowWidth = io.DisplaySize.x;
@@ -478,32 +503,28 @@ void Application::render()
             ImGui::Text("%s", panelName);
             ImGui::Spacing();
 
-            // Panel content
+            // Panel content - delegate to UIManager for consistent UI
             switch (activePanel) {
                 case Panel::Camera:
-                    renderModelsTab();  // Has camera controls
+                    UIManager::instance().renderCameraPanel(camera);
                     break;
                 case Panel::Objects:
-                    ImGui::Text("Scene Objects");
-                    ImGui::Separator();
-                    ImGui::Text("Test Cube at origin");
-                    ImGui::Text("Position: (0, 1, 0)");
-                    ImGui::Text("Size: 2x2x2");
+                    UIManager::instance().renderObjectsPanel();
                     break;
                 case Panel::Materials:
-                    renderMaterialTab();
+                    UIManager::instance().renderMaterialsPanel();
                     break;
                 case Panel::Lights:
-                    renderLightingTab();
+                    UIManager::instance().renderLightsPanel(lightManager);
                     break;
                 case Panel::Viewport:
-                    renderViewportTab();
+                    UIManager::instance().renderViewportPanel(renderer, camera.getPosition());
                     break;
                 case Panel::System:
-                    renderSystemTab();
-                    renderPerformanceTab();
+                    renderSystemTab();  // Keep scene switching in Application
+                    UIManager::instance().renderPerformancePanel();
                     ImGui::Separator();
-                    renderSnowTab();
+                    UIManager::instance().renderSnowPanel();
                     break;
                 default: break;
             }
@@ -832,7 +853,25 @@ void Application::onKeyPressed(const events::KeyPressedEvent& event)
 {
     // ESC is handled by UIManager
     // SPACE/flashlight is handled by LightManager via FlashlightToggleEvent
-    // This handler can be used for Application-specific key bindings
+
+    // Tab toggles between Editor and World mode
+    if (event.key == events::KeyCode::Tab)
+    {
+        toggleRenderMode();
+        std::cout << "[Application] Switched to "
+                  << (m_renderMode == RenderMode::EDITOR ? "EDITOR" : "WORLD")
+                  << " mode" << std::endl;
+
+        // In World mode, capture cursor for immersive experience
+        if (m_renderMode == RenderMode::WORLD) {
+            SDL_SetRelativeMouseMode(SDL_TRUE);
+            cursorCaptured = true;
+        } else {
+            // In Editor mode, release cursor for UI interaction
+            SDL_SetRelativeMouseMode(SDL_FALSE);
+            cursorCaptured = false;
+        }
+    }
 }
 
 void Application::onWindowResized(const events::WindowResizedEvent& event)

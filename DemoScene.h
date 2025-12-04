@@ -39,17 +39,17 @@ public:
     void setFingScale(float s) { m_fingScale = s; }
     glm::vec3 getFingPosition() const { return m_fingPosition; }
 
-    // Military controls
-    void setMilitaryPosition(const glm::vec3& p) { m_militaryPosition = p; }
-    void setMilitaryScale(float s) { m_militaryScale = s; }
-    void setMilitaryAnimEnabled(bool e) { m_militaryAnimEnabled = e; }
-    void setMilitaryAnimSpeed(float s) { m_militaryAnimSpeed = s; }
-
-    // Walking model controls
+    // Walking model controls (now controlled via event system)
     void setWalkingPosition(const glm::vec3& p) { m_walkingPosition = p; }
     void setWalkingScale(float s) { m_walkingScale = s; }
     void setWalkingAnimEnabled(bool e) { m_walkingAnimEnabled = e; }
     void setWalkingAnimSpeed(float s) { m_walkingAnimSpeed = s; }
+
+    // Monster-2 model controls (now controlled via event system)
+    void setMonster2Position(const glm::vec3& p) { m_monster2Position = p; }
+    void setMonster2Scale(float s) { m_monster2Scale = s; }
+    void setMonster2AnimEnabled(bool e) { m_monster2AnimEnabled = e; }
+    void setMonster2AnimSpeed(float s) { m_monster2AnimSpeed = s; }
 
     // Snow system controls
     void setSnowEnabled(bool enabled) { m_snowSystem.setEnabled(enabled); }
@@ -81,6 +81,7 @@ private:
     int m_fingInstanceId = -1;
     int m_militaryInstanceId = -1;
     int m_walkingInstanceId = -1;
+    int m_monster2InstanceId = -1;
 
     // Snow system
     SnowSystem m_snowSystem;
@@ -88,22 +89,25 @@ private:
     // Rendering parameters
     float m_cullDistance = 200.0f;
 
-    // FING model transform controls
+    // FING model transform controls (not currently used)
     glm::vec3 m_fingPosition = glm::vec3(0.0f, 119.900f, -222.300f);
     float m_fingScale = 21.3f;
 
-    // MILITARY model transform controls
-    glm::vec3 m_militaryPosition = glm::vec3(0.0f, 0.0f, -100.0f);
-    float m_militaryScale = 8.5f;
-
-    // WALKING model transform controls
-    glm::vec3 m_walkingPosition = glm::vec3(50.0f, 0.0f, -50.0f);
-    float m_walkingScale = 5.0f;
-
-    // Animation clock
-    float m_animElapsed = 0.0f;
-    bool m_militaryAnimEnabled = true;
-    float m_militaryAnimSpeed = 1.0f;
+    // WALKING model config (controlled by UI)
+    bool m_walkingEnabled = true;
+    glm::vec3 m_walkingPosition = glm::vec3(-3.0f, 0.0f, -5.0f);
+    float m_walkingScale = 1000.0f;
     bool m_walkingAnimEnabled = true;
     float m_walkingAnimSpeed = 1.0f;
+
+    // MONSTER-2 model config (controlled by UI)
+    bool m_monster2Enabled = true;
+    glm::vec3 m_monster2Position = glm::vec3(3.0f, 0.0f, -5.0f);
+    float m_monster2Scale = 1000.0f;
+    bool m_monster2AnimEnabled = true;
+    float m_monster2AnimSpeed = 1.0f;
+
+    // Event subscription
+    void onModelsConfigChanged(const events::ModelsConfigChangedEvent& event);
+    events::SubscriptionId m_modelsSubscription = 0;
 };

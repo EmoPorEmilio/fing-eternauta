@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(Select-String -Pattern 'SKIN.*node26')"
+      "Bash(dir:*)"
     ],
     "deny": [],
     "ask": []
