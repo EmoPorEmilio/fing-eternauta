@@ -41,6 +41,7 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <vector>
+#include "Constants.h"
 #include "Prism.h"
 #include "LightManager.h"
 #include "AssetManager.h"
@@ -68,10 +69,10 @@ public:
     void setObjectCount(int count);
     int getObjectCount() const;
 
-    // Performance presets
-    static constexpr int PRESET_MINIMAL = 3000;
-    static constexpr int PRESET_MEDIUM = 15000;
-    static constexpr int PRESET_MAXIMUM = 500000;
+    // Performance presets - use Constants::Objects values
+    static constexpr int PRESET_MINIMAL = Constants::Objects::PRESET_MINIMAL;
+    static constexpr int PRESET_MEDIUM = Constants::Objects::PRESET_MEDIUM;
+    static constexpr int PRESET_MAXIMUM = Constants::Objects::PRESET_MAXIMUM;
 
     // Performance monitoring
     void printPerformanceStats();
@@ -146,11 +147,11 @@ private:
     float fogAbsorptionDensity;
     float fogAbsorptionStrength;
 
-    // Constants
-    static constexpr float MIN_DISTANCE = 3.0f;
-    static constexpr float WORLD_SIZE = 500.0f;
-    static constexpr float HIGH_LOD_DISTANCE = 50.0f;
-    static constexpr float MEDIUM_LOD_DISTANCE = 150.0f;
+    // Constants - use Constants::Objects values
+    static constexpr float MIN_DISTANCE = Constants::Objects::MIN_DISTANCE_BETWEEN_OBJECTS;
+    static constexpr float WORLD_SIZE = Constants::Objects::WORLD_SIZE;
+    static constexpr float HIGH_LOD_DISTANCE = Constants::Objects::HIGH_LOD_DISTANCE;
+    static constexpr float MEDIUM_LOD_DISTANCE = Constants::Objects::MEDIUM_LOD_DISTANCE;
 
     // Setup methods
     void setupLODGeometry();

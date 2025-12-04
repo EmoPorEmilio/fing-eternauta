@@ -26,12 +26,12 @@ This is a modern OpenGL 4.5 graphics engine featuring PBR rendering, GPU-instanc
 |-----------|---------------|
 | **Application** | Main loop, ImGui UI, event dispatch |
 | **Renderer** | SDL2 window, OpenGL context, framebuffers |
-| **Scene** | Orchestrates ObjectManager, ModelManager, SnowSystem |
+| **Scene** | Orchestrates ObjectManager, ModelManager, SnowManager |
 | **Camera** | FPS-style controls (WASD + mouse look) |
 | **LightManager** | Multi-light system + flashlight with UBO (binding point 2) |
 | **ObjectManager** | GPU-instanced prisms with 3-level LOD and frustum culling |
 | **ModelManager** | GLTF model loading via tinygltf, instance transforms |
-| **SnowSystem** | Particle simulation with wind, optional Bullet3 collision |
+| **SnowManager** | Particle simulation with wind, optional Bullet3 collision |
 
 ### Shader Pipeline
 
@@ -59,16 +59,18 @@ All shaders share fog uniforms (`uFogEnabled`, `uFogColor`, `uFogDensity`, `uFog
 ## Directory Structure
 
 ```
+src/              All source code (.h/.cpp files)
+  ├── ecs/        Entity-Component-System core (Entity, Registry, System)
+  ├── components/ ECS component definitions
+  ├── systems/    ECS system implementations
+  └── events/     Event types and EventBus
 assets/           GLTF models, textures, fonts
 shaders/          GLSL vertex/fragment shaders
 libraries/        SDL2, GLM, GLAD, tinygltf, ImGui, Bullet3
-ecs/              Entity-Component-System core (Entity, Registry, System)
-components/       ECS component definitions
-systems/          ECS system implementations
-events/           Event types and EventBus
 tests/            Unit tests (math, components)
 docs/             Architecture documentation
 fing-eternauta/   VS project files
+main.cpp          Application entry point (in root)
 ```
 
 ## Dependencies
@@ -77,7 +79,7 @@ SDL2 2.0.12, GLAD 4.5, GLM, tinygltf (includes stb_image), ImGui, Bullet3 (optio
 
 ## ECS Architecture
 
-The engine uses a custom Entity-Component-System located in `ecs/` and `components/`.
+The engine uses a custom Entity-Component-System located in `src/ecs/` and `src/components/`.
 
 ### Entity IDs
 
@@ -101,7 +103,7 @@ registry.each<TransformComponent, RenderableComponent>([](Entity e, auto& t, aut
 });
 ```
 
-### Components (`components/`)
+### Components (`src/components/`)
 
 | Component | Key Fields | Purpose |
 |-----------|------------|---------|
@@ -113,7 +115,7 @@ registry.each<TransformComponent, RenderableComponent>([](Entity e, auto& t, aut
 | **ParticleComponent** | velocity, lifetime, age, seed | Particle physics state |
 | **PhysicsComponent** | rigidBody, mass, friction | Bullet3 physics handles |
 
-### Systems (`systems/`)
+### Systems (`src/systems/`)
 
 | System | Update Frequency | Responsibility |
 |--------|-----------------|----------------|
@@ -138,7 +140,7 @@ lodSystem->setCameraPosition(cameraPos);
 
 ## Event System
 
-Events provide decoupled communication via `events/EventBus.h`.
+Events provide decoupled communication via `src/events/EventBus.h`.
 
 ### Usage
 
@@ -165,7 +167,7 @@ events::EventBus::instance().publish(FogConfigChangedEvent{
 events::EventBus::instance().unsubscribe(id);
 ```
 
-### Event Types (`events/`)
+### Event Types (`src/events/`)
 
 **Config Events** (`ConfigEvents.h`):
 | Event | Triggered By | Fields |
@@ -251,7 +253,7 @@ layout(std140, binding = 2) uniform FlashlightBlock {
 - **Key Methods**: `loadModel()`, `addModelInstance()`, `render()`
 - **Supports**: Skeletal animation, PBR materials, instancing
 
-### SnowSystem
+### SnowManager
 - **Owns**: Particle simulation, impact puffs, optional Bullet3 world
 - **GPU Resources**: Billboard VAO, instance VBO, puff instance VBO
 - **Key Methods**: `initialize()`, `update(deltaTime)`, `render()`
@@ -325,7 +327,7 @@ ECSWorld::getRegistry().add<TransformComponent>(entity, pos, rot, scale);
 ```
 
 **Add a new event type:**
-1. Define struct in `events/` inheriting from `EventBase<YourEvent>`
+1. Define struct in `src/events/` inheriting from `EventBase<YourEvent>`
 2. Subscribe in interested classes
 3. Publish when state changes
 

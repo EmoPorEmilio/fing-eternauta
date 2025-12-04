@@ -2,12 +2,13 @@
 #include "ECSWorld.h"
 #include <iostream>
 #include <cstdlib>
+#include <string>
 
 Application::Application() : running(false), prevTicks(0), frequency(0.0)
 {
-    // Initialize UI state
+    // Initialize UI state - start in main menu mode
     uiOpen = false;
-    cursorCaptured = true;
+    cursorCaptured = false;  // Cursor visible for menu
     uiAmbient = 0.2f;
     uiSpecularStrength = 0.5f;
     uiNormalStrength = 0.276f;
@@ -172,6 +173,9 @@ bool Application::initialize()
         std::cerr << "WARNING: OpenGL errors detected after initialization!" << std::endl;
     }
 
+    // Set initial window title
+    updateWindowTitle();
+
     std::cout << "=== Application Initialization Complete ===" << std::endl;
     return true;
 }
@@ -331,8 +335,30 @@ void Application::render()
         ImGui::NewFrame();
     }
 
-    // In WORLD mode, skip all editor UI
-    if (m_renderMode == RenderMode::WORLD)
+    // Handle different render modes
+    if (m_renderMode == RenderMode::MAIN_MENU)
+    {
+        // Main menu mode - show scene selection screen
+        if (imguiInitialized)
+        {
+            renderMainMenu();
+        }
+
+        // In main menu, just clear and show UI - no scene rendering
+        glClearColor(0.08f, 0.09f, 0.11f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // Draw ImGui
+        if (imguiInitialized)
+        {
+            ImGui::Render();
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        }
+        SDL_GL_SwapWindow(renderer.window);
+        PerformanceProfiler::endTimer("render");
+        return;  // Skip scene rendering
+    }
+    else if (m_renderMode == RenderMode::WORLD)
     {
         // Minimal HUD in World mode - just show FPS and mode toggle hint
         if (imguiInitialized)
@@ -620,6 +646,12 @@ void Application::render()
         }
     }
 
+    // Render escape menu if open (on top of everything)
+    if (escapeMenuOpen && imguiInitialized)
+    {
+        renderEscapeMenu();
+    }
+
     // Draw ImGui only if initialized
     if (imguiInitialized)
     {
@@ -808,6 +840,318 @@ void Application::renderViewportTab()
     }
 }
 
+void Application::renderMainMenu()
+{
+    ImGuiIO& io = ImGui::GetIO();
+    float windowWidth = io.DisplaySize.x;
+    float windowHeight = io.DisplaySize.y;
+
+    // Center the menu panel
+    float panelWidth = 400.0f;
+    float panelHeight = 500.0f;
+    float panelX = (windowWidth - panelWidth) / 2.0f;
+    float panelY = (windowHeight - panelHeight) / 2.0f;
+
+    ImGui::SetNextWindowPos(ImVec2(panelX, panelY));
+    ImGui::SetNextWindowSize(ImVec2(panelWidth, panelHeight));
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                             ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
+
+    ImGui::Begin("##MainMenu", nullptr, flags);
+
+    // Title
+    ImGui::Dummy(ImVec2(0, 15));
+    float titleWidth = ImGui::CalcTextSize("PROYECTO VIVIANA").x;
+    ImGui::SetCursorPosX((panelWidth - titleWidth) / 2.0f);
+    ImGui::PushFont(nullptr);  // Use default font
+    ImGui::TextColored(ImVec4(0.906f, 0.298f, 0.475f, 1.0f), "PROYECTO VIVIANA");
+    ImGui::PopFont();
+
+    ImGui::Dummy(ImVec2(0, 8));
+    float subtitleWidth = ImGui::CalcTextSize("OpenGL 4.5 Graphics Engine").x;
+    ImGui::SetCursorPosX((panelWidth - subtitleWidth) / 2.0f);
+    ImGui::TextColored(ImVec4(0.6f, 0.65f, 0.7f, 1.0f), "OpenGL 4.5 Graphics Engine");
+
+    ImGui::Dummy(ImVec2(0, 20));
+
+    // Separator
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, 15));
+
+    // Mode selection text
+    float selectWidth = ImGui::CalcTextSize("Select Mode").x;
+    ImGui::SetCursorPosX((panelWidth - selectWidth) / 2.0f);
+    ImGui::TextColored(ImVec4(0.847f, 0.871f, 0.914f, 1.0f), "Select Mode");
+
+    ImGui::Dummy(ImVec2(0, 15));
+
+    // Buttons - centered and styled
+    float buttonWidth = 280.0f;
+    float buttonHeight = 45.0f;
+    float buttonX = (panelWidth - buttonWidth) / 2.0f;
+
+    // Editor Mode button (opens EmptyScene with full UI)
+    ImGui::SetCursorPosX(buttonX);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.220f, 0.255f, 0.306f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.906f, 0.298f, 0.475f, 0.7f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.906f, 0.298f, 0.475f, 1.0f));
+
+    if (ImGui::Button("Editor", ImVec2(buttonWidth, buttonHeight)))
+    {
+        m_renderMode = RenderMode::EDITOR;
+        switchScene(0);  // EmptyScene (calls updateWindowTitle)
+        uiOpen = true;
+        cursorCaptured = false;
+        SDL_SetRelativeMouseMode(SDL_FALSE);
+    }
+    ImGui::PopStyleColor(3);
+
+    // Editor description
+    ImGui::SetCursorPosX(buttonX + 10);
+    ImGui::TextColored(ImVec4(0.5f, 0.55f, 0.6f, 1.0f), "Empty scene with full UI panels and controls");
+
+    ImGui::Dummy(ImVec2(0, 12));
+
+    // Demo Scene button (opens DemoScene with full content)
+    ImGui::SetCursorPosX(buttonX);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.220f, 0.255f, 0.306f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.298f, 0.686f, 0.314f, 0.7f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.298f, 0.686f, 0.314f, 1.0f));
+
+    if (ImGui::Button("Demo Scene", ImVec2(buttonWidth, buttonHeight)))
+    {
+        m_renderMode = RenderMode::EDITOR;
+        switchScene(1);  // DemoScene (calls updateWindowTitle)
+        uiOpen = true;
+        cursorCaptured = false;
+        SDL_SetRelativeMouseMode(SDL_FALSE);
+    }
+    ImGui::PopStyleColor(3);
+
+    // Demo description
+    ImGui::SetCursorPosX(buttonX + 10);
+    ImGui::TextColored(ImVec4(0.5f, 0.55f, 0.6f, 1.0f), "Full demo: 500k objects, snow, GLTF models");
+
+    ImGui::Dummy(ImVec2(0, 12));
+
+    // Empty Scene button (opens EmptyScene in World mode)
+    ImGui::SetCursorPosX(buttonX);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.220f, 0.255f, 0.306f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.4f, 0.6f, 0.8f, 0.7f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.4f, 0.6f, 0.8f, 1.0f));
+
+    if (ImGui::Button("Empty Scene", ImVec2(buttonWidth, buttonHeight)))
+    {
+        m_renderMode = RenderMode::WORLD;
+        switchScene(0);  // EmptyScene (calls updateWindowTitle)
+        uiOpen = false;
+        cursorCaptured = true;
+        SDL_SetRelativeMouseMode(SDL_TRUE);
+    }
+    ImGui::PopStyleColor(3);
+
+    // Empty scene description
+    ImGui::SetCursorPosX(buttonX + 10);
+    ImGui::TextColored(ImVec4(0.5f, 0.55f, 0.6f, 1.0f), "Clean world with snow cube, immersive view");
+
+    ImGui::Dummy(ImVec2(0, 20));
+
+    // Separator before hints
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, 10));
+
+    // Hint text
+    float hintWidth = ImGui::CalcTextSize("Tab: Toggle Editor/World  |  ESC: Toggle Panel").x;
+    ImGui::SetCursorPosX((panelWidth - hintWidth) / 2.0f);
+    ImGui::TextColored(ImVec4(0.4f, 0.45f, 0.5f, 1.0f), "Tab: Toggle Editor/World  |  ESC: Toggle Panel");
+
+    ImGui::End();
+}
+
+void Application::renderEscapeMenu()
+{
+    ImGuiIO& io = ImGui::GetIO();
+    float windowWidth = io.DisplaySize.x;
+    float windowHeight = io.DisplaySize.y;
+
+    // Semi-transparent overlay background
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImVec2(windowWidth, windowHeight));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5f));
+    ImGui::Begin("##EscapeOverlay", nullptr,
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoInputs);
+    ImGui::End();
+    ImGui::PopStyleColor();
+
+    // Center the menu panel
+    float panelWidth = 350.0f;
+    float panelHeight = 380.0f;
+    float panelX = (windowWidth - panelWidth) / 2.0f;
+    float panelY = (windowHeight - panelHeight) / 2.0f;
+
+    ImGui::SetNextWindowPos(ImVec2(panelX, panelY));
+    ImGui::SetNextWindowSize(ImVec2(panelWidth, panelHeight));
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                             ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
+
+    ImGui::Begin("##EscapeMenu", nullptr, flags);
+
+    // Title
+    ImGui::Dummy(ImVec2(0, 10));
+    float titleWidth = ImGui::CalcTextSize("PAUSED").x;
+    ImGui::SetCursorPosX((panelWidth - titleWidth) / 2.0f);
+    ImGui::TextColored(ImVec4(0.906f, 0.298f, 0.475f, 1.0f), "PAUSED");
+
+    ImGui::Dummy(ImVec2(0, 5));
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, 15));
+
+    // Buttons
+    float buttonWidth = 250.0f;
+    float buttonHeight = 40.0f;
+    float buttonX = (panelWidth - buttonWidth) / 2.0f;
+
+    // Resume button
+    ImGui::SetCursorPosX(buttonX);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.220f, 0.255f, 0.306f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.298f, 0.686f, 0.314f, 0.7f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.298f, 0.686f, 0.314f, 1.0f));
+    if (ImGui::Button("Resume", ImVec2(buttonWidth, buttonHeight)))
+    {
+        escapeMenuOpen = false;
+        if (m_renderMode == RenderMode::WORLD) {
+            SDL_SetRelativeMouseMode(SDL_TRUE);
+            cursorCaptured = true;
+        }
+    }
+    ImGui::PopStyleColor(3);
+
+    ImGui::Dummy(ImVec2(0, 8));
+
+    // Switch Scene section
+    ImGui::SetCursorPosX(buttonX);
+    ImGui::TextColored(ImVec4(0.6f, 0.65f, 0.7f, 1.0f), "Switch Scene:");
+    ImGui::Dummy(ImVec2(0, 5));
+
+    // Scene buttons side by side
+    float halfBtnWidth = (buttonWidth - 10) / 2.0f;
+    ImGui::SetCursorPosX(buttonX);
+
+    bool isEmptyScene = (currentSceneIndex == 0);
+    if (isEmptyScene) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.906f, 0.298f, 0.475f, 0.5f));
+    } else {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.220f, 0.255f, 0.306f, 1.0f));
+    }
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.906f, 0.298f, 0.475f, 0.7f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.906f, 0.298f, 0.475f, 1.0f));
+    if (ImGui::Button("EmptyScene", ImVec2(halfBtnWidth, buttonHeight)))
+    {
+        m_renderMode = m_renderMode;  // Keep current mode
+        switchScene(0);
+    }
+    ImGui::PopStyleColor(3);
+
+    ImGui::SameLine();
+
+    bool isDemoScene = (currentSceneIndex == 1);
+    if (isDemoScene) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.906f, 0.298f, 0.475f, 0.5f));
+    } else {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.220f, 0.255f, 0.306f, 1.0f));
+    }
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.906f, 0.298f, 0.475f, 0.7f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.906f, 0.298f, 0.475f, 1.0f));
+    if (ImGui::Button("DemoScene", ImVec2(halfBtnWidth, buttonHeight)))
+    {
+        m_renderMode = m_renderMode;  // Keep current mode
+        switchScene(1);
+    }
+    ImGui::PopStyleColor(3);
+
+    ImGui::Dummy(ImVec2(0, 8));
+
+    // Switch Mode section
+    ImGui::SetCursorPosX(buttonX);
+    ImGui::TextColored(ImVec4(0.6f, 0.65f, 0.7f, 1.0f), "Switch Mode:");
+    ImGui::Dummy(ImVec2(0, 5));
+
+    // Mode buttons side by side
+    ImGui::SetCursorPosX(buttonX);
+
+    bool isEditor = (m_renderMode == RenderMode::EDITOR);
+    if (isEditor) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.4f, 0.6f, 0.8f, 0.5f));
+    } else {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.220f, 0.255f, 0.306f, 1.0f));
+    }
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.4f, 0.6f, 0.8f, 0.7f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.4f, 0.6f, 0.8f, 1.0f));
+    if (ImGui::Button("Editor", ImVec2(halfBtnWidth, buttonHeight)))
+    {
+        m_renderMode = RenderMode::EDITOR;
+        uiOpen = true;
+        escapeMenuOpen = false;
+        SDL_SetRelativeMouseMode(SDL_FALSE);
+        cursorCaptured = false;
+        updateWindowTitle();
+    }
+    ImGui::PopStyleColor(3);
+
+    ImGui::SameLine();
+
+    bool isWorld = (m_renderMode == RenderMode::WORLD);
+    if (isWorld) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.4f, 0.6f, 0.8f, 0.5f));
+    } else {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.220f, 0.255f, 0.306f, 1.0f));
+    }
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.4f, 0.6f, 0.8f, 0.7f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.4f, 0.6f, 0.8f, 1.0f));
+    if (ImGui::Button("World", ImVec2(halfBtnWidth, buttonHeight)))
+    {
+        m_renderMode = RenderMode::WORLD;
+        uiOpen = false;
+        escapeMenuOpen = false;
+        SDL_SetRelativeMouseMode(SDL_TRUE);
+        cursorCaptured = true;
+        updateWindowTitle();
+    }
+    ImGui::PopStyleColor(3);
+
+    ImGui::Dummy(ImVec2(0, 15));
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, 10));
+
+    // Main Menu button
+    ImGui::SetCursorPosX(buttonX);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.220f, 0.255f, 0.306f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.7f, 0.3f, 0.3f, 0.7f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.7f, 0.3f, 0.3f, 1.0f));
+    if (ImGui::Button("Return to Main Menu", ImVec2(buttonWidth, buttonHeight)))
+    {
+        escapeMenuOpen = false;
+        m_renderMode = RenderMode::MAIN_MENU;
+        uiOpen = false;
+        SDL_SetRelativeMouseMode(SDL_FALSE);
+        cursorCaptured = false;
+        updateWindowTitle();
+    }
+    ImGui::PopStyleColor(3);
+
+    ImGui::Dummy(ImVec2(0, 10));
+
+    // Hint
+    float hintWidth = ImGui::CalcTextSize("Press ESC to close").x;
+    ImGui::SetCursorPosX((panelWidth - hintWidth) / 2.0f);
+    ImGui::TextColored(ImVec4(0.4f, 0.45f, 0.5f, 1.0f), "Press ESC to close");
+
+    ImGui::End();
+}
+
 // Event handling implementation
 void Application::subscribeToEvents()
 {
@@ -851,13 +1195,42 @@ void Application::unsubscribeFromEvents()
 
 void Application::onKeyPressed(const events::KeyPressedEvent& event)
 {
-    // ESC is handled by UIManager
     // SPACE/flashlight is handled by LightManager via FlashlightToggleEvent
 
-    // Tab toggles between Editor and World mode
-    if (event.key == events::KeyCode::Tab)
+    // ESC toggles escape menu (when not in main menu)
+    if (event.key == events::KeyCode::Escape && !event.repeat)
     {
-        toggleRenderMode();
+        if (m_renderMode != RenderMode::MAIN_MENU)
+        {
+            escapeMenuOpen = !escapeMenuOpen;
+            // Release cursor when escape menu opens
+            if (escapeMenuOpen) {
+                SDL_SetRelativeMouseMode(SDL_FALSE);
+                cursorCaptured = false;
+            } else if (m_renderMode == RenderMode::WORLD) {
+                // Re-capture cursor when closing in World mode
+                SDL_SetRelativeMouseMode(SDL_TRUE);
+                cursorCaptured = true;
+            }
+        }
+    }
+
+    // Tab toggles between Editor and World mode (only if escape menu is closed)
+    if (event.key == events::KeyCode::Tab && !escapeMenuOpen)
+    {
+        // If in main menu, go to editor mode
+        if (m_renderMode == RenderMode::MAIN_MENU)
+        {
+            m_renderMode = RenderMode::EDITOR;
+            uiOpen = true;
+            cursorCaptured = false;
+            SDL_SetRelativeMouseMode(SDL_FALSE);
+        }
+        else
+        {
+            toggleRenderMode();
+        }
+
         std::cout << "[Application] Switched to "
                   << (m_renderMode == RenderMode::EDITOR ? "EDITOR" : "WORLD")
                   << " mode" << std::endl;
@@ -871,6 +1244,8 @@ void Application::onKeyPressed(const events::KeyPressedEvent& event)
             SDL_SetRelativeMouseMode(SDL_FALSE);
             cursorCaptured = false;
         }
+
+        updateWindowTitle();
     }
 }
 
@@ -899,4 +1274,30 @@ void Application::switchScene(int sceneIndex)
         activeScene = &demoScene;
         std::cout << "[Application] Switched to DemoScene" << std::endl;
     }
+    updateWindowTitle();
+}
+
+void Application::updateWindowTitle()
+{
+    std::string title = "FING-ETERNAUTA / ";
+
+    // Add mode
+    switch (m_renderMode) {
+        case RenderMode::MAIN_MENU:
+            title += "Main Menu";
+            break;
+        case RenderMode::EDITOR:
+            title += "Editor - ";
+            break;
+        case RenderMode::WORLD:
+            title += "World - ";
+            break;
+    }
+
+    // Add scene name (only if not main menu)
+    if (m_renderMode != RenderMode::MAIN_MENU) {
+        title += (currentSceneIndex == 0) ? "EmptyScene" : "DemoScene";
+    }
+
+    renderer.setWindowTitle(title.c_str());
 }

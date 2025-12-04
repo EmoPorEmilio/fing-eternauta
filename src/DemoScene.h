@@ -3,7 +3,7 @@
 #include "BaseScene.h"
 #include "ObjectManager.h"
 #include "ModelManager.h"
-#include "SnowSystem.h"
+#include "SnowManager.h"
 
 /**
  * @brief Full demo scene with all content
@@ -11,7 +11,7 @@
  * This is the original full scene containing:
  * - Instanced prism objects (ObjectManager)
  * - GLTF models (ModelManager)
- * - Snow particle system (SnowSystem)
+ * - Snow particle system (SnowManager)
  *
  * Inherits floor and fog from BaseScene.
  */
@@ -84,7 +84,7 @@ private:
     int m_monster2InstanceId = -1;
 
     // Snow system
-    SnowSystem m_snowSystem;
+    SnowManager m_snowSystem;
 
     // Rendering parameters
     float m_cullDistance = 200.0f;

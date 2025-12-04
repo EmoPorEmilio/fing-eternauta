@@ -1,4 +1,4 @@
-#include "SnowSystem.h"
+#include "SnowManager.h"
 #include "ECSWorld.h"
 #include "Shader.h"
 #include <iostream>
@@ -9,7 +9,7 @@
 // Require Bullet at build time (no fallback)
 #include <bullet/btBulletDynamicsCommon.h>
 
-SnowSystem::SnowSystem()
+SnowManager::SnowManager()
     : m_enabled(true), m_initialized(false), m_count(30000), m_fallSpeed(10.0f), m_windSpeed(5.0f), m_windDirection(glm::radians(180.0f)), m_spriteSize(0.05f), m_timeScale(1.0f), m_accumulatedTime(0.0f), m_spawnHeight(50.0f), m_spawnRadius(100.0f), m_floorY(0.0f), m_frustumCulling(true), m_visibleCount(0), m_fogEnabled(true), m_fogColor(0.0f, 0.0f, 0.0f), m_fogDensity(0.01f), m_fogDesaturationStrength(1.0f), m_fogAbsorptionDensity(0.02f), m_fogAbsorptionStrength(0.8f), m_quadVAO(0), m_quadVBO(0), m_instanceVBO(0), m_puffVAO(0), m_puffInstanceVBO(0), m_shader(nullptr), m_rng(std::random_device{}()), m_uniformDist(0.0f, 1.0f)
 {
     // Bullet members
@@ -24,28 +24,28 @@ SnowSystem::SnowSystem()
     m_groundBody = nullptr;
 }
 
-SnowSystem::~SnowSystem()
+SnowManager::~SnowManager()
 {
     shutdown();
 }
 
-bool SnowSystem::initialize()
+bool SnowManager::initialize()
 {
     if (m_initialized)
     {
         return true;
     }
 
-    std::cout << "[SnowSystem] Initializing with " << m_count << " snowflakes..." << std::endl;
+    std::cout << "[SnowManager] Initializing with " << m_count << " snowflakes..." << std::endl;
 
     // Minimal diagnostic without C++17 deps
-    std::cout << "[SnowSystem] Looking for snow_glow.vert/.frag via Shader loader" << std::endl;
+    std::cout << "[SnowManager] Looking for snow_glow.vert/.frag via Shader loader" << std::endl;
 
     // Create shader using filename-only; loader resolves multiple directories
     m_shader = new Shader();
     if (!m_shader->loadFromFiles("snow_glow.vert", "snow_glow.frag"))
     {
-        std::cout << "[SnowSystem] Failed to load snow shaders!" << std::endl;
+        std::cout << "[SnowManager] Failed to load snow shaders!" << std::endl;
         delete m_shader;
         m_shader = nullptr;
         return false;
@@ -103,15 +103,15 @@ bool SnowSystem::initialize()
     m_instanceData.reserve(m_count * 4);
 
     m_initialized = true;
-    std::cout << "[SnowSystem] Initialized successfully!" << std::endl;
+    std::cout << "[SnowManager] Initialized successfully!" << std::endl;
     if (m_bulletEnabled)
     {
-        std::cout << "[SnowSystem][Bullet] Bullet world will be initialized on first toggle." << std::endl;
+        std::cout << "[SnowManager][Bullet] Bullet world will be initialized on first toggle." << std::endl;
     }
     return true;
 }
 
-void SnowSystem::shutdown()
+void SnowManager::shutdown()
 {
     if (!m_initialized)
     {
@@ -167,10 +167,10 @@ void SnowSystem::shutdown()
     }
 
     m_initialized = false;
-    std::cout << "[SnowSystem] Shutdown complete" << std::endl;
+    std::cout << "[SnowManager] Shutdown complete" << std::endl;
 }
 
-void SnowSystem::update(float deltaTime, const glm::vec3 &cameraPos, const glm::mat4 &viewMatrix, const glm::mat4 &projectionMatrix)
+void SnowManager::update(float deltaTime, const glm::vec3 &cameraPos, const glm::mat4 &viewMatrix, const glm::mat4 &projectionMatrix)
 {
     if (!m_enabled || !m_initialized)
     {
@@ -346,7 +346,7 @@ void SnowSystem::update(float deltaTime, const glm::vec3 &cameraPos, const glm::
     updatePuffs(deltaTime);
 }
 
-void SnowSystem::setBulletGroundCollisionEnabled(bool enabled)
+void SnowManager::setBulletGroundCollisionEnabled(bool enabled)
 {
     if (enabled == m_bulletEnabled)
     {
@@ -355,17 +355,17 @@ void SnowSystem::setBulletGroundCollisionEnabled(bool enabled)
     m_bulletEnabled = enabled;
     if (m_bulletEnabled)
     {
-        std::cout << "[SnowSystem][Bullet] Enabling Bullet ground collision..." << std::endl;
+        std::cout << "[SnowManager][Bullet] Enabling Bullet ground collision..." << std::endl;
         initializeBullet();
     }
     else
     {
-        std::cout << "[SnowSystem][Bullet] Disabling Bullet ground collision..." << std::endl;
+        std::cout << "[SnowManager][Bullet] Disabling Bullet ground collision..." << std::endl;
         shutdownBullet();
     }
 }
 
-void SnowSystem::render(const glm::mat4 &view, const glm::mat4 &projection, const glm::vec3 &cameraPos)
+void SnowManager::render(const glm::mat4 &view, const glm::mat4 &projection, const glm::vec3 &cameraPos)
 {
     if (!m_enabled || !m_initialized || !m_shader)
     {
@@ -462,7 +462,7 @@ void SnowSystem::render(const glm::mat4 &view, const glm::mat4 &projection, cons
     }
 }
 
-void SnowSystem::setCount(int count)
+void SnowManager::setCount(int count)
 {
     count = std::max(0, std::min(count, 50000)); // Clamp to reasonable range
     if (count == m_count)
@@ -491,12 +491,12 @@ void SnowSystem::setCount(int count)
     }
 }
 
-void SnowSystem::setupBuffers()
+void SnowManager::setupBuffers()
 {
     // This method is now integrated into initialize()
 }
 
-void SnowSystem::updatePuffs(float deltaTime)
+void SnowManager::updatePuffs(float deltaTime)
 {
     if (m_puffs.empty())
     {
@@ -512,7 +512,7 @@ void SnowSystem::updatePuffs(float deltaTime)
                   m_puffs.end());
 }
 
-void SnowSystem::uploadPuffs()
+void SnowManager::uploadPuffs()
 {
     if (m_puffs.empty())
     {
@@ -533,7 +533,7 @@ void SnowSystem::uploadPuffs()
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
-glm::vec3 SnowSystem::getRandomSpawnPosition(const glm::vec3 &cameraPos, const glm::mat4 &viewMatrix)
+glm::vec3 SnowManager::getRandomSpawnPosition(const glm::vec3 &cameraPos, const glm::mat4 &viewMatrix)
 {
     // Spawn in a circle around camera, above
     float angle = m_uniformDist(m_rng) * 2.0f * glm::pi<float>();
@@ -545,7 +545,7 @@ glm::vec3 SnowSystem::getRandomSpawnPosition(const glm::vec3 &cameraPos, const g
         cameraPos.z + glm::sin(angle) * radius);
 }
 
-void SnowSystem::initializeBullet()
+void SnowManager::initializeBullet()
 {
     if (m_bulletWorld)
     {
@@ -568,10 +568,10 @@ void SnowSystem::initializeBullet()
     m_groundBody = new btRigidBody(rbInfo);
     m_groundBody->setCollisionFlags(m_groundBody->getCollisionFlags() | btCollisionObject::CF_STATIC_OBJECT);
     m_bulletWorld->addRigidBody(m_groundBody);
-    std::cout << "[SnowSystem][Bullet] World initialized (static plane at Y = " << m_floorY << ")" << std::endl;
+    std::cout << "[SnowManager][Bullet] World initialized (static plane at Y = " << m_floorY << ")" << std::endl;
 }
 
-void SnowSystem::shutdownBullet()
+void SnowManager::shutdownBullet()
 {
     if (!m_bulletWorld && !m_groundShape)
     {
@@ -599,12 +599,12 @@ void SnowSystem::shutdownBullet()
     m_bulletDispatcher = nullptr;
     delete m_bulletCollisionConfig;
     m_bulletCollisionConfig = nullptr;
-    std::cout << "[SnowSystem][Bullet] World shutdown" << std::endl;
+    std::cout << "[SnowManager][Bullet] World shutdown" << std::endl;
 }
 
 // =========== ECS Implementation ===========
 
-ecs::Entity SnowSystem::createSnowflakeEntity(const glm::vec3& position, float seed, float fallSpeed)
+ecs::Entity SnowManager::createSnowflakeEntity(const glm::vec3& position, float seed, float fallSpeed)
 {
     auto& registry = ECSWorld::getRegistry();
     ecs::Entity entity = registry.create();
@@ -638,9 +638,9 @@ ecs::Entity SnowSystem::createSnowflakeEntity(const glm::vec3& position, float s
     return entity;
 }
 
-void SnowSystem::createSnowflakeEntities()
+void SnowManager::createSnowflakeEntities()
 {
-    std::cout << "[SnowSystem] Creating " << m_count << " snowflake entities..." << std::endl;
+    std::cout << "[SnowManager] Creating " << m_count << " snowflake entities..." << std::endl;
 
     m_entities.clear();
     m_entities.reserve(m_count);
@@ -661,10 +661,10 @@ void SnowSystem::createSnowflakeEntities()
         m_entities.push_back(entity);
     }
 
-    std::cout << "[SnowSystem] Created " << m_entities.size() << " entities" << std::endl;
+    std::cout << "[SnowManager] Created " << m_entities.size() << " entities" << std::endl;
 }
 
-void SnowSystem::gatherSnowflakeData()
+void SnowManager::gatherSnowflakeData()
 {
     m_instanceData.clear();
     m_visibleCount = 0;

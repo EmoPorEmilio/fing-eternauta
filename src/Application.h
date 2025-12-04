@@ -39,15 +39,15 @@
 #include "InputManager.h"
 #include "UIManager.h"
 #include "events/Events.h"
-#include "libraries/imgui/imgui.h"
-#include "libraries/imgui/imgui_impl_sdl2.h"
-#include "libraries/imgui/imgui_impl_opengl3.h"
+#include "../libraries/imgui/imgui.h"
+#include "../libraries/imgui/imgui_impl_sdl2.h"
+#include "../libraries/imgui/imgui_impl_opengl3.h"
 
 class Application
 {
 public:
     // Application render modes
-    enum class RenderMode { EDITOR, WORLD };
+    enum class RenderMode { MAIN_MENU, EDITOR, WORLD };
 
     Application();
     ~Application();
@@ -59,7 +59,10 @@ public:
     // Mode control
     RenderMode getRenderMode() const { return m_renderMode; }
     void setRenderMode(RenderMode mode) { m_renderMode = mode; }
-    void toggleRenderMode() { m_renderMode = (m_renderMode == RenderMode::EDITOR) ? RenderMode::WORLD : RenderMode::EDITOR; }
+    void toggleRenderMode() {
+        // Toggle between EDITOR and WORLD (skip MAIN_MENU)
+        m_renderMode = (m_renderMode == RenderMode::EDITOR) ? RenderMode::WORLD : RenderMode::EDITOR;
+    }
 
     // Key debouncing structure - moved here so it can be used in function signatures
     struct KeyState
@@ -75,7 +78,7 @@ private:
     EmptyScene emptyScene;
     DemoScene demoScene;
     IScene* activeScene = nullptr;  // Points to current scene
-    int currentSceneIndex = 1;      // 0=Empty, 1=Demo (default to Demo)
+    int currentSceneIndex = 0;      // 0=Empty, 1=Demo (default to Empty)
     LightManager lightManager;
 
     bool running;
@@ -89,6 +92,7 @@ private:
     void update(float deltaTime);
     void render();
     void switchScene(int sceneIndex);  // 0=Empty, 1=Demo
+    void updateWindowTitle();          // Updates title based on mode/scene
 
     // Key debouncing helper
     bool isKeyPressed(KeyState &keyState, bool currentlyPressed, float currentTime);
@@ -108,9 +112,14 @@ private:
     bool uiOpen = true;  // UI visible by default
     bool cursorCaptured = false;  // Start with cursor free for UI
     bool imguiInitialized = false;
+    bool escapeMenuOpen = false;  // Escape menu popup state
 
-    // Render mode (Editor vs World)
-    RenderMode m_renderMode = RenderMode::EDITOR;
+    // Render mode (MainMenu vs Editor vs World)
+    RenderMode m_renderMode = RenderMode::MAIN_MENU;  // Start at main menu
+
+    // Main menu rendering
+    void renderMainMenu();
+    void renderEscapeMenu();  // In-game escape menu popup
 
     // Sidebar panel state
     enum class Panel { None, Camera, Objects, Materials, Lights, Viewport, System };

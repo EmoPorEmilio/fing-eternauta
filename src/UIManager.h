@@ -45,7 +45,7 @@
 #include <glm/glm.hpp>
 #include "events/Events.h"
 #include "ConfigManager.h"
-#include "libraries/imgui/imgui.h"
+#include "../libraries/imgui/imgui.h"
 
 // Forward declarations
 class LightManager;

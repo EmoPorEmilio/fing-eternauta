@@ -79,7 +79,7 @@ The engine runs and works well. Most architectural improvements have been comple
 | RenderableComponent | ObjectMgr, ModelMgr | CullingSystem, RenderSystem | YES |
 | LODComponent | ObjectMgr | LODSystem | YES |
 | LightComponent | LightMgr | LightSystem | YES |
-| ParticleComponent | SnowSystem | ParticleSystem | YES |
+| ParticleComponent | SnowManager | ParticleSystem | YES |
 | MaterialComponent | - | - | DEFINED ONLY |
 | PhysicsComponent | - | PhysicsSystem | MINIMAL |
 | AnimationComponent | ModelMgr | AnimationSystem | MINIMAL |

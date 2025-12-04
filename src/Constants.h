@@ -109,10 +109,9 @@ namespace Constants
         constexpr float WORLD_SIZE = 500.0f;
         constexpr float DEFAULT_OBJECT_HEIGHT = 0.5f; // Half height of prism
 
-        // LOD distances
-        constexpr float HIGH_LOD_DISTANCE = 8.0f;
-        constexpr float MEDIUM_LOD_DISTANCE = 25.0f;
-        // Beyond MEDIUM_LOD_DISTANCE = LOW LOD
+        // LOD distances (meters from camera)
+        constexpr float HIGH_LOD_DISTANCE = 50.0f;    // < 50m = HIGH LOD
+        constexpr float MEDIUM_LOD_DISTANCE = 150.0f; // 50-150m = MEDIUM LOD, > 150m = LOW LOD
 
         // Object colors
         constexpr float DEFAULT_OBJECT_COLOR_R = 0.8f;

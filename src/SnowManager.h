@@ -1,8 +1,8 @@
 /**
- * @file SnowSystem.h
+ * @file SnowManager.h
  * @brief Real-time snow particle simulation with optional Bullet3 physics
  *
- * SnowSystem manages thousands of snow particles with GPU-instanced billboard
+ * SnowManager manages thousands of snow particles with GPU-instanced billboard
  * rendering, wind simulation, and optional ground collision via Bullet3.
  *
  * Particle Simulation:
@@ -61,11 +61,11 @@ class btCollisionShape;
 class btDefaultMotionState;
 class btRigidBody;
 
-class SnowSystem
+class SnowManager
 {
 public:
-    SnowSystem();
-    ~SnowSystem();
+    SnowManager();
+    ~SnowManager();
 
     bool initialize();
     void shutdown();

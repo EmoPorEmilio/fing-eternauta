@@ -49,6 +49,7 @@ public:
     glm::mat4 getProjection() const { return projection; }
     int getWidth() const { return windowWidth; }
     int getHeight() const { return windowHeight; }
+    void setWindowTitle(const char* title);
 
 public:
     SDL_Window *window;

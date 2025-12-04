@@ -64,10 +64,8 @@ void UIManager::unsubscribeFromEvents() {
 }
 
 void UIManager::onKeyPressed(const events::KeyPressedEvent& event) {
-    // ESC toggles UI sidebar
-    if (event.key == events::KeyCode::Escape && !event.repeat) {
-        toggle();
-    }
+    // ESC handling moved to Application for escape menu
+    (void)event;  // Unused
 }
 
 void UIManager::beginFrame() {

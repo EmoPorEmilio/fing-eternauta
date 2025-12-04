@@ -3,7 +3,7 @@
 #include <iostream>
 #include <vector>
 
-#include "libraries/tinygltf/stb_image.h"
+#include "../libraries/tinygltf/stb_image.h"
 
 Texture::Texture() : textureID(0)
 {

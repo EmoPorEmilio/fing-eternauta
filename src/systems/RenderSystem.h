@@ -75,7 +75,7 @@ public:
                         break;
 
                     case RenderableType::PARTICLE:
-                        // Particles rendered separately via SnowSystem for now
+                        // Particles rendered separately via SnowManager for now
                         break;
 
                     case RenderableType::FLOOR:

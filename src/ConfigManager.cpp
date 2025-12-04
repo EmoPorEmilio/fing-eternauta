@@ -1,7 +1,7 @@
 #include "ConfigManager.h"
 #include <fstream>
 #include <iostream>
-#include "libraries/tinygltf/json.hpp"
+#include "../libraries/tinygltf/json.hpp"
 
 using json = nlohmann::json;
 

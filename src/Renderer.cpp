@@ -262,3 +262,11 @@ void Renderer::clearAccumulation()
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
+
+void Renderer::setWindowTitle(const char* title)
+{
+    if (window)
+    {
+        SDL_SetWindowTitle(window, title);
+    }
+}
