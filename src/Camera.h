@@ -1,35 +1,55 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <SDL.h>
 
-class Camera
+struct Camera
 {
-public:
-    Camera(float x = 0.0f, float y = 1.6f, float z = 3.0f);
+    glm::vec3 position = glm::vec3(3.0f, 2.0f, 5.0f);
+    glm::vec3 front = glm::vec3(0.0f, 0.0f, -1.0f);
+    glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
 
-    void update(float deltaTime);
-    void handleInput(const Uint8 *keys, float deltaTime);
-    void handleMouseInput(float xoffset, float yoffset);
+    float yaw = -90.0f;
+    float pitch = -15.0f;
+    float speed = 5.0f;
+    float sensitivity = 0.1f;
 
-    glm::mat4 getViewMatrix() const;
-    glm::vec3 getPosition() const { return position; }
-    glm::vec3 getFront() const { return front; }
+    void updateVectors()
+    {
+        glm::vec3 f;
+        f.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
+        f.y = sin(glm::radians(pitch));
+        f.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
+        front = glm::normalize(f);
+    }
 
-    void setPosition(const glm::vec3 &pos) { position = pos; }
-    void setMovementSpeed(float speed) { movementSpeed = speed; }
+    glm::mat4 getViewMatrix() const
+    {
+        return glm::lookAt(position, position + front, up);
+    }
 
-private:
-    glm::vec3 position;
-    glm::vec3 front;
-    glm::vec3 up;
-    glm::vec3 right;
-    glm::vec3 worldUp;
+    void processMouseMovement(float xoffset, float yoffset)
+    {
+        yaw += xoffset * sensitivity;
+        pitch -= yoffset * sensitivity;
 
-    float yaw;
-    float pitch;
-    float movementSpeed;
-    float mouseSensitivity;
+        if (pitch > 89.0f) pitch = 89.0f;
+        if (pitch < -89.0f) pitch = -89.0f;
 
-    void updateCameraVectors();
+        updateVectors();
+    }
+
+    void processKeyboard(const Uint8* keys, float deltaTime)
+    {
+        float velocity = speed * deltaTime;
+        glm::vec3 right = glm::normalize(glm::cross(front, up));
+
+        if (keys[SDL_SCANCODE_W]) position += front * velocity;
+        if (keys[SDL_SCANCODE_S]) position -= front * velocity;
+        if (keys[SDL_SCANCODE_A]) position -= right * velocity;
+        if (keys[SDL_SCANCODE_D]) position += right * velocity;
+        if (keys[SDL_SCANCODE_SPACE]) position += up * velocity;
+        if (keys[SDL_SCANCODE_LSHIFT]) position -= up * velocity;
+    }
 };

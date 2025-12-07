@@ -1,14 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dir:*)",
-      "Bash(find:*)",
-      "Bash(for f in Application.cpp Application.h AssetManager.cpp AssetManager.h BaseScene.cpp BaseScene.h Camera.cpp Camera.h ConfigManager.cpp ConfigManager.h Constants.h DebugRenderer.cpp DebugRenderer.h DemoScene.cpp DemoScene.h ECSWorld.cpp ECSWorld.h EmptyScene.cpp EmptyScene.h GLTFModel.cpp GLTFModel.h InputManager.cpp InputManager.h IScene.h LightManager.cpp LightManager.h ModelManager.cpp ModelManager.h ObjectManager.cpp ObjectManager.h Prism.cpp Prism.h Renderer.cpp Renderer.h Scene.cpp Scene.h Shader.cpp Shader.h SnowSystem.cpp SnowSystem.h Texture.cpp Texture.h UIManager.cpp UIManager.h)",
-      "Bash(do mv \"$f\" src/)",
-      "Bash(done)",
-      "Bash(msbuild:*)",
-      "Bash(cmd.exe:*)",
-      "Bash(powershell.exe:*)"
+      "Bash(powershell.exe:*)",
+      "Bash(MSBuild.exe:*)"
     ],
     "deny": [],
     "ask": []
