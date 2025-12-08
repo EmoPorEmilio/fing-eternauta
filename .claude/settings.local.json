@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(powershell.exe:*)",
-      "Bash(MSBuild.exe:*)"
+      "Bash(MSBuild.exe:*)",
+      "Bash(timeout:*)",
+      "Bash(mkdir -p:*)"
     ],
     "deny": [],
     "ask": []

@@ -92,13 +92,30 @@
     <ClCompile Include="..\main.cpp" />
     <ClCompile Include="..\glad.c" />
     <ClCompile Include="..\src\Shader.cpp" />
-    <ClCompile Include="..\src\Model.cpp" />
+    <ClCompile Include="..\src\assets\AssetLoader.cpp" />
   </ItemGroup>
 
   <!-- Header Files -->
   <ItemGroup>
     <ClInclude Include="..\src\Shader.h" />
-    <ClInclude Include="..\src\Model.h" />
+    <ClInclude Include="..\src\DebugRenderer.h" />
+    <ClInclude Include="..\src\ecs\Entity.h" />
+    <ClInclude Include="..\src\ecs\Registry.h" />
+    <ClInclude Include="..\src\ecs\components\Transform.h" />
+    <ClInclude Include="..\src\ecs\components\Mesh.h" />
+    <ClInclude Include="..\src\ecs\components\Skeleton.h" />
+    <ClInclude Include="..\src\ecs\components\Animation.h" />
+    <ClInclude Include="..\src\ecs\components\Renderable.h" />
+    <ClInclude Include="..\src\ecs\components\Camera.h" />
+    <ClInclude Include="..\src\ecs\components\RigidBody.h" />
+    <ClInclude Include="..\src\ecs\components\Collider.h" />
+    <ClInclude Include="..\src\ecs\systems\InputSystem.h" />
+    <ClInclude Include="..\src\ecs\systems\AnimationSystem.h" />
+    <ClInclude Include="..\src\ecs\systems\SkeletonSystem.h" />
+    <ClInclude Include="..\src\ecs\systems\RenderSystem.h" />
+    <ClInclude Include="..\src\ecs\systems\PhysicsSystem.h" />
+    <ClInclude Include="..\src\ecs\systems\CollisionSystem.h" />
+    <ClInclude Include="..\src\assets\AssetLoader.h" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
