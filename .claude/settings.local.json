@@ -4,7 +4,12 @@
       "Bash(powershell.exe:*)",
       "Bash(MSBuild.exe:*)",
       "Bash(timeout:*)",
-      "Bash(mkdir -p:*)"
+      "Bash(mkdir -p:*)",
+      "Bash(cat:*)",
+      "Bash(wc:*)",
+      "Bash(del \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\PLAN.md\")",
+      "Bash(dir:*)",
+      "Bash(.x64Debugfing-eternauta.exe)"
     ],
     "deny": [],
     "ask": []

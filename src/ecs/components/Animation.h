@@ -24,4 +24,5 @@ struct Animation {
     int clipIndex = 0;
     float time = 0.0f;
     bool playing = true;
+    std::vector<AnimationClip> clips;  // Clips now live in the component
 };

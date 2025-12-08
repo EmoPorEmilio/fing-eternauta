@@ -39,15 +39,15 @@
 
   <!-- Include and Library Paths -->
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>..\libraries\SDL2-2.0.12\include;..\libraries\glad;..\libraries\glm;..\libraries\tinygltf;$(IncludePath)</IncludePath>
-    <LibraryPath>..\libraries\SDL2-2.0.12\lib\x64;$(LibraryPath)</LibraryPath>
+    <IncludePath>..\libraries\SDL3-3.3.4\include;..\libraries\SDL3_ttf-3.2.2\include;..\libraries\glad;..\libraries\glm;..\libraries\tinygltf;$(IncludePath)</IncludePath>
+    <LibraryPath>..\libraries\SDL3-3.3.4\lib\x64;..\libraries\SDL3_ttf-3.2.2\lib\x64;$(LibraryPath)</LibraryPath>
     <OutDir>$(SolutionDir)x64\$(Configuration)\</OutDir>
     <IntDir>$(Configuration)\</IntDir>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>..\libraries\SDL2-2.0.12\include;..\libraries\glad;..\libraries\glm;..\libraries\tinygltf;$(IncludePath)</IncludePath>
-    <LibraryPath>..\libraries\SDL2-2.0.12\lib\x64;$(LibraryPath)</LibraryPath>
+    <IncludePath>..\libraries\SDL3-3.3.4\include;..\libraries\SDL3_ttf-3.2.2\include;..\libraries\glad;..\libraries\glm;..\libraries\tinygltf;$(IncludePath)</IncludePath>
+    <LibraryPath>..\libraries\SDL3-3.3.4\lib\x64;..\libraries\SDL3_ttf-3.2.2\lib\x64;$(LibraryPath)</LibraryPath>
     <OutDir>$(SolutionDir)x64\$(Configuration)\</OutDir>
     <IntDir>$(Configuration)\</IntDir>
   </PropertyGroup>
@@ -63,7 +63,7 @@
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>opengl32.lib;SDL2.lib;SDL2main.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>opengl32.lib;SDL3.lib;SDL3_ttf.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <SubSystem>Console</SubSystem>
     </Link>
   </ItemDefinitionGroup>
@@ -82,7 +82,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>opengl32.lib;SDL2.lib;SDL2main.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>opengl32.lib;SDL3.lib;SDL3_ttf.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <SubSystem>Console</SubSystem>
     </Link>
   </ItemDefinitionGroup>
@@ -116,6 +116,20 @@
     <ClInclude Include="..\src\ecs\systems\PhysicsSystem.h" />
     <ClInclude Include="..\src\ecs\systems\CollisionSystem.h" />
     <ClInclude Include="..\src\assets\AssetLoader.h" />
+    <ClInclude Include="..\src\ecs\components\PlayerController.h" />
+    <ClInclude Include="..\src\ecs\components\FollowTarget.h" />
+    <ClInclude Include="..\src\ecs\components\FacingDirection.h" />
+    <ClInclude Include="..\src\ecs\components\UIText.h" />
+    <ClInclude Include="..\src\ecs\systems\PlayerMovementSystem.h" />
+    <ClInclude Include="..\src\ecs\systems\CameraOrbitSystem.h" />
+    <ClInclude Include="..\src\ecs\systems\FollowCameraSystem.h" />
+    <ClInclude Include="..\src\ecs\systems\UISystem.h" />
+    <ClInclude Include="..\src\ui\Font.h" />
+    <ClInclude Include="..\src\ui\FontManager.h" />
+    <ClInclude Include="..\src\ui\TextCache.h" />
+    <ClInclude Include="..\src\ui\UIRenderer.h" />
+    <ClInclude Include="..\src\ecs\systems\FreeCameraSystem.h" />
+    <ClInclude Include="..\src\scenes\SceneManager.h" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

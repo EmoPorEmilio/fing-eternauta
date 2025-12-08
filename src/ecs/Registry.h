@@ -10,24 +10,56 @@
 #include "components/Collider.h"
 #include "components/PlayerController.h"
 #include "components/FollowTarget.h"
+#include "components/FacingDirection.h"
+#include "components/UIText.h"
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <functional>
 
 class Registry {
 public:
     Entity create() {
-        return ++m_nextId;
+        Entity e = ++m_nextId;
+        m_alive.insert(e);
+        return e;
     }
 
     void destroy(Entity e) {
+        m_alive.erase(e);
         m_transforms.erase(e);
         m_meshGroups.erase(e);
         m_skeletons.erase(e);
         m_animations.erase(e);
         m_renderables.erase(e);
         m_cameras.erase(e);
+        m_rigidBodies.erase(e);
+        m_groundPlanes.erase(e);
+        m_boxColliders.erase(e);
+        m_playerControllers.erase(e);
+        m_followTargets.erase(e);
+        m_facingDirections.erase(e);
+        m_uiTexts.erase(e);
     }
+
+    bool isAlive(Entity e) const {
+        return m_alive.count(e) > 0;
+    }
+
+    // has*() component checks
+    bool hasTransform(Entity e) const { return m_transforms.count(e) > 0; }
+    bool hasMeshGroup(Entity e) const { return m_meshGroups.count(e) > 0; }
+    bool hasSkeleton(Entity e) const { return m_skeletons.count(e) > 0; }
+    bool hasAnimation(Entity e) const { return m_animations.count(e) > 0; }
+    bool hasRenderable(Entity e) const { return m_renderables.count(e) > 0; }
+    bool hasCamera(Entity e) const { return m_cameras.count(e) > 0; }
+    bool hasRigidBody(Entity e) const { return m_rigidBodies.count(e) > 0; }
+    bool hasGroundPlane(Entity e) const { return m_groundPlanes.count(e) > 0; }
+    bool hasBoxCollider(Entity e) const { return m_boxColliders.count(e) > 0; }
+    bool hasPlayerController(Entity e) const { return m_playerControllers.count(e) > 0; }
+    bool hasFollowTarget(Entity e) const { return m_followTargets.count(e) > 0; }
+    bool hasFacingDirection(Entity e) const { return m_facingDirections.count(e) > 0; }
+    bool hasUIText(Entity e) const { return m_uiTexts.count(e) > 0; }
 
     // Transform
     Transform& addTransform(Entity e, Transform t = {}) {
@@ -139,6 +171,26 @@ public:
         return it != m_followTargets.end() ? &it->second : nullptr;
     }
 
+    // FacingDirection
+    FacingDirection& addFacingDirection(Entity e, FacingDirection fd = {}) {
+        m_facingDirections[e] = fd;
+        return m_facingDirections[e];
+    }
+    FacingDirection* getFacingDirection(Entity e) {
+        auto it = m_facingDirections.find(e);
+        return it != m_facingDirections.end() ? &it->second : nullptr;
+    }
+
+    // UIText
+    UIText& addUIText(Entity e, UIText ut = {}) {
+        m_uiTexts[e] = std::move(ut);
+        return m_uiTexts[e];
+    }
+    UIText* getUIText(Entity e) {
+        auto it = m_uiTexts.find(e);
+        return it != m_uiTexts.end() ? &it->second : nullptr;
+    }
+
     // Iteration helpers
     template<typename Func>
     void forEachRenderable(Func&& func) {
@@ -232,8 +284,26 @@ public:
         }
     }
 
+    template<typename Func>
+    void forEachFacingDirection(Func&& func) {
+        for (auto& [entity, fd] : m_facingDirections) {
+            auto* transform = getTransform(entity);
+            if (transform) {
+                func(entity, *transform, fd);
+            }
+        }
+    }
+
+    template<typename Func>
+    void forEachUIText(Func&& func) {
+        for (auto& [entity, uiText] : m_uiTexts) {
+            func(entity, uiText);
+        }
+    }
+
 private:
     Entity m_nextId = 0;
+    std::unordered_set<Entity> m_alive;
     std::unordered_map<Entity, Transform> m_transforms;
     std::unordered_map<Entity, MeshGroup> m_meshGroups;
     std::unordered_map<Entity, Skeleton> m_skeletons;
@@ -245,4 +315,6 @@ private:
     std::unordered_map<Entity, BoxCollider> m_boxColliders;
     std::unordered_map<Entity, PlayerController> m_playerControllers;
     std::unordered_map<Entity, FollowTarget> m_followTargets;
+    std::unordered_map<Entity, FacingDirection> m_facingDirections;
+    std::unordered_map<Entity, UIText> m_uiTexts;
 };

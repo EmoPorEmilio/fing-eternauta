@@ -1,22 +1,26 @@
 #pragma once
 #include "../Registry.h"
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <glm/gtc/quaternion.hpp>
 
 class PlayerMovementSystem {
 public:
-    void update(Registry& registry, float dt, float cameraYaw) {
-        const Uint8* keys = SDL_GetKeyboardState(nullptr);
-
-        // Forward direction based on camera yaw
-        float yawRad = glm::radians(cameraYaw);
-        glm::vec3 forward(-sin(yawRad), 0.0f, -cos(yawRad));
-        glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+    void update(Registry& registry, float dt) {
+        const bool* keys = SDL_GetKeyboardState(nullptr);
 
         registry.forEachPlayerController([&](Entity entity, Transform& transform, PlayerController& pc) {
+            // Get entity's own facing direction
+            auto* facing = registry.getFacingDirection(entity);
+            if (!facing) return;
+
+            // Forward direction based on facing yaw
+            float yawRad = glm::radians(facing->yaw);
+            glm::vec3 forward(-sin(yawRad), 0.0f, -cos(yawRad));
+            glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+
             // Character faces forward direction (model faces +Z by default, so add PI)
             glm::quat targetRot = glm::angleAxis(yawRad + glm::pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
-            transform.rotation = glm::slerp(transform.rotation, targetRot, pc.turnSpeed * dt);
+            transform.rotation = glm::slerp(transform.rotation, targetRot, facing->turnSpeed * dt);
 
             // Movement relative to facing direction
             glm::vec3 moveDir(0.0f);

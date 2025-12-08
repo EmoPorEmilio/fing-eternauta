@@ -3,27 +3,17 @@
 #include "../../assets/AssetLoader.h"
 #include <glm/gtx/quaternion.hpp>
 #include <cmath>
-#include <unordered_map>
 
 class AnimationSystem {
 public:
-    void setClips(Entity entity, std::vector<AnimationClip> clips) {
-        m_clips[entity] = std::move(clips);
-    }
-
-    const std::vector<AnimationClip>* getClips(Entity entity) const {
-        auto it = m_clips.find(entity);
-        return it != m_clips.end() ? &it->second : nullptr;
-    }
-
     void update(Registry& registry, float dt) {
         registry.forEachAnimated([&](Entity entity, Animation& anim, Skeleton& skeleton) {
             if (!anim.playing) return;
 
-            auto* clips = getClips(entity);
-            if (!clips || anim.clipIndex < 0 || anim.clipIndex >= static_cast<int>(clips->size())) return;
+            // Clips now live in the Animation component
+            if (anim.clipIndex < 0 || anim.clipIndex >= static_cast<int>(anim.clips.size())) return;
 
-            const AnimationClip& clip = (*clips)[anim.clipIndex];
+            const AnimationClip& clip = anim.clips[anim.clipIndex];
 
             anim.time += dt;
             if (clip.duration > 0.0f) {
@@ -39,8 +29,6 @@ public:
     }
 
 private:
-    std::unordered_map<Entity, std::vector<AnimationClip>> m_clips;
-
     static bool findKeyframes(const std::vector<float>& times, float t, size_t& i0, size_t& i1, float& factor) {
         if (times.empty()) return false;
         if (times.size() == 1) {

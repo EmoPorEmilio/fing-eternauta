@@ -129,9 +129,19 @@ void Shader::setMat4Array(const char* name, const std::vector<glm::mat4>& mats) 
     }
 }
 
+void Shader::setVec2(const char* name, const glm::vec2& vec) const
+{
+    glUniform2fv(getUniformLocation(name), 1, glm::value_ptr(vec));
+}
+
 void Shader::setVec3(const char* name, const glm::vec3& vec) const
 {
     glUniform3fv(getUniformLocation(name), 1, glm::value_ptr(vec));
+}
+
+void Shader::setVec4(const char* name, const glm::vec4& vec) const
+{
+    glUniform4fv(getUniformLocation(name), 1, glm::value_ptr(vec));
 }
 
 void Shader::setInt(const char* name, int value) const
