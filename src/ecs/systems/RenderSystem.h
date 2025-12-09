@@ -13,6 +13,9 @@ public:
     }
 
     void setFogEnabled(bool enabled) { m_fogEnabled = enabled; }
+    void setShadowsEnabled(bool enabled) { m_shadowsEnabled = enabled; }
+    void setShadowMap(GLuint texture) { m_shadowMap = texture; }
+    void setLightSpaceMatrix(const glm::mat4& matrix) { m_lightSpaceMatrix = matrix; }
 
     void update(Registry& registry, float aspectRatio) {
         Entity camEntity = registry.getActiveCamera();
@@ -71,6 +74,12 @@ public:
                 shader->setInt("uTexture", 0);
                 shader->setInt("uHasTexture", hasTexture ? 1 : 0);
                 shader->setInt("uFogEnabled", m_fogEnabled ? 1 : 0);
+                shader->setInt("uShadowsEnabled", m_shadowsEnabled ? 1 : 0);
+                shader->setMat4("uLightSpaceMatrix", m_lightSpaceMatrix);
+                // Bind shadow map to texture unit 1
+                glActiveTexture(GL_TEXTURE1);
+                glBindTexture(GL_TEXTURE_2D, m_shadowMap);
+                shader->setInt("uShadowMap", 1);
             }
 
             if (renderable.shader == ShaderType::Skinned) {
@@ -138,6 +147,12 @@ public:
                 shader->setInt("uTexture", 0);
                 shader->setInt("uHasTexture", hasTexture ? 1 : 0);
                 shader->setInt("uFogEnabled", m_fogEnabled ? 1 : 0);
+                shader->setInt("uShadowsEnabled", m_shadowsEnabled ? 1 : 0);
+                shader->setMat4("uLightSpaceMatrix", m_lightSpaceMatrix);
+                // Bind shadow map to texture unit 1
+                glActiveTexture(GL_TEXTURE1);
+                glBindTexture(GL_TEXTURE_2D, m_shadowMap);
+                shader->setInt("uShadowMap", 1);
             }
 
             if (renderable.shader == ShaderType::Skinned) {
@@ -173,6 +188,9 @@ private:
     Shader m_skinnedShader;
     Shader m_terrainShader;
     bool m_fogEnabled = false;
+    bool m_shadowsEnabled = false;
+    GLuint m_shadowMap = 0;
+    glm::mat4 m_lightSpaceMatrix = glm::mat4(1.0f);
 
     Shader* getShader(ShaderType type) {
         switch (type) {

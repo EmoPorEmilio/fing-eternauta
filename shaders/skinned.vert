@@ -8,12 +8,14 @@ layout (location = 4) in vec4 aWeights;
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProjection;
+uniform mat4 uLightSpaceMatrix;
 uniform mat4 uBones[128];
 uniform int uUseSkinning;
 
 out vec3 vNormal;
 out vec2 vTexCoord;
 out vec3 vFragPos;
+out vec4 vFragPosLightSpace;
 
 void main()
 {
@@ -39,6 +41,7 @@ void main()
 
     vec4 worldPos = uModel * skinnedPos;
     vFragPos = worldPos.xyz;
+    vFragPosLightSpace = uLightSpaceMatrix * worldPos;
     vNormal = mat3(transpose(inverse(uModel))) * skinnedNormal;
     vTexCoord = aTexCoord;
     gl_Position = uProjection * uView * worldPos;

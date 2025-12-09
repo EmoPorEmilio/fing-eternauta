@@ -9,6 +9,8 @@ struct InputState {
     // Key press events (single frame)
     bool upPressed = false;
     bool downPressed = false;
+    bool leftPressed = false;
+    bool rightPressed = false;
     bool enterPressed = false;
     bool escapePressed = false;
 };
@@ -37,6 +39,12 @@ public:
                         break;
                     case SDLK_DOWN:
                         state.downPressed = true;
+                        break;
+                    case SDLK_LEFT:
+                        state.leftPressed = true;
+                        break;
+                    case SDLK_RIGHT:
+                        state.rightPressed = true;
                         break;
                     case SDLK_RETURN:
                         state.enterPressed = true;

@@ -390,11 +390,59 @@ int main(int argc, char* argv[]) {
     fogToggleText.fontId = "oxanium_large";
     fogToggleText.fontSize = 48;
     fogToggleText.anchor = AnchorPoint::Center;
-    fogToggleText.offset = glm::vec2(0.0f, -30.0f);
+    fogToggleText.offset = glm::vec2(0.0f, -90.0f);
     fogToggleText.horizontalAlign = HorizontalAlign::Center;
     fogToggleText.color = glm::vec4(255.0f, 255.0f, 255.0f, 255.0f);
     fogToggleText.visible = false;
     registry.addUIText(pauseFogToggle, fogToggleText);
+
+    Entity pauseSnowToggle = registry.create();
+    UIText snowToggleText;
+    snowToggleText.text = "SNOW: YES";
+    snowToggleText.fontId = "oxanium_large";
+    snowToggleText.fontSize = 48;
+    snowToggleText.anchor = AnchorPoint::Center;
+    snowToggleText.offset = glm::vec2(0.0f, -30.0f);
+    snowToggleText.horizontalAlign = HorizontalAlign::Center;
+    snowToggleText.color = glm::vec4(128.0f, 128.0f, 128.0f, 255.0f);
+    snowToggleText.visible = false;
+    registry.addUIText(pauseSnowToggle, snowToggleText);
+
+    Entity pauseSnowSpeed = registry.create();
+    UIText snowSpeedText;
+    snowSpeedText.text = "SNOW SPEED: 5.0  < >";
+    snowSpeedText.fontId = "oxanium_large";
+    snowSpeedText.fontSize = 48;
+    snowSpeedText.anchor = AnchorPoint::Center;
+    snowSpeedText.offset = glm::vec2(0.0f, 30.0f);
+    snowSpeedText.horizontalAlign = HorizontalAlign::Center;
+    snowSpeedText.color = glm::vec4(128.0f, 128.0f, 128.0f, 255.0f);
+    snowSpeedText.visible = false;
+    registry.addUIText(pauseSnowSpeed, snowSpeedText);
+
+    Entity pauseSnowAngle = registry.create();
+    UIText snowAngleText;
+    snowAngleText.text = "SNOW ANGLE: 40  < >";
+    snowAngleText.fontId = "oxanium_large";
+    snowAngleText.fontSize = 48;
+    snowAngleText.anchor = AnchorPoint::Center;
+    snowAngleText.offset = glm::vec2(0.0f, 90.0f);
+    snowAngleText.horizontalAlign = HorizontalAlign::Center;
+    snowAngleText.color = glm::vec4(128.0f, 128.0f, 128.0f, 255.0f);
+    snowAngleText.visible = false;
+    registry.addUIText(pauseSnowAngle, snowAngleText);
+
+    Entity pauseSnowBlur = registry.create();
+    UIText snowBlurText;
+    snowBlurText.text = "SNOW BLUR: 0.0  < >";
+    snowBlurText.fontId = "oxanium_large";
+    snowBlurText.fontSize = 48;
+    snowBlurText.anchor = AnchorPoint::Center;
+    snowBlurText.offset = glm::vec2(0.0f, 150.0f);
+    snowBlurText.horizontalAlign = HorizontalAlign::Center;
+    snowBlurText.color = glm::vec4(128.0f, 128.0f, 128.0f, 255.0f);
+    snowBlurText.visible = false;
+    registry.addUIText(pauseSnowBlur, snowBlurText);
 
     Entity pauseMenuOption = registry.create();
     UIText pauseMenuText;
@@ -402,7 +450,7 @@ int main(int argc, char* argv[]) {
     pauseMenuText.fontId = "oxanium_large";
     pauseMenuText.fontSize = 48;
     pauseMenuText.anchor = AnchorPoint::Center;
-    pauseMenuText.offset = glm::vec2(0.0f, 30.0f);
+    pauseMenuText.offset = glm::vec2(0.0f, 210.0f);
     pauseMenuText.horizontalAlign = HorizontalAlign::Center;
     pauseMenuText.color = glm::vec4(128.0f, 128.0f, 128.0f, 255.0f);
     pauseMenuText.visible = false;
@@ -418,6 +466,78 @@ int main(int argc, char* argv[]) {
     AxisRenderer axes;
     axes.init();
 
+    // Sun billboard shader and quad
+    Shader sunShader;
+    sunShader.loadFromFiles("shaders/sun.vert", "shaders/sun.frag");
+    GLuint sunVAO, sunVBO;
+    {
+        float sunQuad[] = {
+            -1.0f, -1.0f,
+             1.0f, -1.0f,
+            -1.0f,  1.0f,
+             1.0f,  1.0f
+        };
+        glGenVertexArrays(1, &sunVAO);
+        glGenBuffers(1, &sunVBO);
+        glBindVertexArray(sunVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, sunVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(sunQuad), sunQuad, GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glBindVertexArray(0);
+    }
+
+    // Shadow mapping setup
+    Shader depthShader;
+    depthShader.loadFromFiles("shaders/depth.vert", "shaders/depth.frag");
+    const int SHADOW_WIDTH = 2048, SHADOW_HEIGHT = 2048;
+    GLuint shadowFBO, shadowDepthTexture;
+    {
+        glGenFramebuffers(1, &shadowFBO);
+        glGenTextures(1, &shadowDepthTexture);
+
+        glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+        float borderColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
+        glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowDepthTexture, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    // Light direction (same as in shaders)
+    glm::vec3 lightDir = glm::normalize(glm::vec3(0.5f, 1.0f, 0.3f));
+
+    // Shadertoy overlay (fullscreen snow effect)
+    Shader overlayShader;
+    overlayShader.loadFromFiles("shaders/shadertoy_overlay.vert", "shaders/shadertoy_overlay.frag");
+    GLuint overlayVAO, overlayVBO;
+    {
+        // Fullscreen quad in NDC
+        float quadVertices[] = {
+            -1.0f, -1.0f,
+             1.0f, -1.0f,
+            -1.0f,  1.0f,
+             1.0f,  1.0f
+        };
+        glGenVertexArrays(1, &overlayVAO);
+        glGenBuffers(1, &overlayVBO);
+        glBindVertexArray(overlayVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, overlayVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glBindVertexArray(0);
+    }
+    float gameTime = 0.0f;  // Track time for shader effects
+
     // Timing
     uint64_t prevTime = SDL_GetPerformanceCounter();
     uint64_t frequency = SDL_GetPerformanceFrequency();
@@ -431,6 +551,11 @@ int main(int argc, char* argv[]) {
 
     // Game settings
     bool fogEnabled = false;
+    bool snowEnabled = true;
+    float snowSpeed = 5.0f;
+    float snowAngle = 40.0f;
+    float snowMotionBlur = 0.0f;  // 0.0 = no blur, higher = more trail
+    const int PAUSE_MENU_ITEMS = 6;  // Fog, Snow, Snow Speed, Snow Angle, Snow Blur, Back
 
     // Game loop
     bool running = true;
@@ -438,6 +563,7 @@ int main(int argc, char* argv[]) {
         uint64_t currentTime = SDL_GetPerformanceCounter();
         float dt = (float)(currentTime - prevTime) / frequency;
         prevTime = currentTime;
+        gameTime += dt;  // Accumulate time for shader effects
 
         // Poll input events
         InputState input = inputSystem.pollEvents();
@@ -453,6 +579,10 @@ int main(int argc, char* argv[]) {
             registry.getUIText(sprintHint)->visible = false;
             registry.getUIText(godModeHint)->visible = false;
             registry.getUIText(pauseFogToggle)->visible = false;
+            registry.getUIText(pauseSnowToggle)->visible = false;
+            registry.getUIText(pauseSnowSpeed)->visible = false;
+            registry.getUIText(pauseSnowAngle)->visible = false;
+            registry.getUIText(pauseSnowBlur)->visible = false;
             registry.getUIText(pauseMenuOption)->visible = false;
 
             if (scene == SceneType::MainMenu) {
@@ -492,9 +622,17 @@ int main(int argc, char* argv[]) {
                 inputSystem.captureMouse(false);
                 pauseMenuSelection = 0;  // Reset to first option
                 registry.getUIText(pauseFogToggle)->visible = true;
+                registry.getUIText(pauseSnowToggle)->visible = true;
+                registry.getUIText(pauseSnowSpeed)->visible = true;
+                registry.getUIText(pauseSnowAngle)->visible = true;
+                registry.getUIText(pauseSnowBlur)->visible = true;
                 registry.getUIText(pauseMenuOption)->visible = true;
                 // Update colors based on selection
                 registry.getUIText(pauseFogToggle)->color = menuColorSelected;
+                registry.getUIText(pauseSnowToggle)->color = menuColorUnselected;
+                registry.getUIText(pauseSnowSpeed)->color = menuColorUnselected;
+                registry.getUIText(pauseSnowAngle)->color = menuColorUnselected;
+                registry.getUIText(pauseSnowBlur)->color = menuColorUnselected;
                 registry.getUIText(pauseMenuOption)->color = menuColorUnselected;
                 uiSystem.clearCache();
             }
@@ -604,45 +742,146 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            // Render
-            glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-            // Draw debug axes and compute view matrix
+            // Compute camera matrices before shadow pass
             auto* cam = registry.getCamera(camera);
             auto* camT = registry.getTransform(camera);
             auto* protagonistFacing = registry.getFacingDirection(protagonist);
             auto* ft = registry.getFollowTarget(camera);
             glm::mat4 playView;
+            glm::mat4 projection;
             if (cam && camT && protagonistT && protagonistFacing && ft) {
                 glm::vec3 lookAtPos = FollowCameraSystem::getLookAtPosition(*protagonistT, *ft, protagonistFacing->yaw);
                 playView = glm::lookAt(camT->position, lookAtPos, glm::vec3(0.0f, 1.0f, 0.0f));
-                glm::mat4 vp = cam->projectionMatrix(aspectRatio) * playView;
+                projection = cam->projectionMatrix(aspectRatio);
+            }
+
+            // === SHADOW PASS ===
+            // Compute light space matrix centered on player
+            float orthoSize = 100.0f;
+            glm::vec3 lightPos = (protagonistT ? protagonistT->position : glm::vec3(0.0f)) + lightDir * 80.0f;
+            glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, 200.0f);
+            glm::mat4 lightView = glm::lookAt(lightPos, protagonistT ? protagonistT->position : glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            glm::mat4 lightSpaceMatrix = lightProjection * lightView;
+
+            glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+            glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+            glClear(GL_DEPTH_BUFFER_BIT);
+
+            depthShader.use();
+            depthShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
+
+            // Render buildings to shadow map
+            for (Entity e : buildingEntityPool) {
+                auto* t = registry.getTransform(e);
+                if (t && t->position.y > -100.0f) {
+                    depthShader.setMat4("uModel", t->matrix());
+                    auto* mg = registry.getMeshGroup(e);
+                    if (mg) {
+                        for (const auto& mesh : mg->meshes) {
+                            glBindVertexArray(mesh.vao);
+                            glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
+                        }
+                    }
+                }
+            }
+
+            // Render fing building to shadow map
+            {
+                auto* t = registry.getTransform(fingBuilding);
+                auto* mg = registry.getMeshGroup(fingBuilding);
+                if (t && mg) {
+                    depthShader.setMat4("uModel", t->matrix());
+                    for (const auto& mesh : mg->meshes) {
+                        glBindVertexArray(mesh.vao);
+                        glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
+                    }
+                }
+            }
+
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+
+            // === MAIN RENDER PASS ===
+            glClearColor(0.53f, 0.81f, 0.92f, 1.0f);  // Sky blue
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            // Draw debug axes
+            if (cam && camT && protagonistT && protagonistFacing && ft) {
+                glm::mat4 vp = projection * playView;
                 colorShader.use();
                 colorShader.setMat4("uMVP", vp);
                 axes.draw();
             }
 
+            // Set shadow uniforms for render system
             renderSystem.setFogEnabled(fogEnabled);
+            renderSystem.setShadowsEnabled(true);
+            renderSystem.setShadowMap(shadowDepthTexture);
+            renderSystem.setLightSpaceMatrix(lightSpaceMatrix);
             renderSystem.update(registry, aspectRatio);
 
-            // Render ground plane
-            glm::mat4 projection = cam->projectionMatrix(aspectRatio);
-            glm::vec3 lightDir = glm::normalize(glm::vec3(0.5f, 1.0f, 0.3f));
+            // Render ground plane with shadows
             groundShader.use();
             groundShader.setMat4("uView", playView);
             groundShader.setMat4("uProjection", projection);
             groundShader.setMat4("uModel", glm::mat4(1.0f));
+            groundShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
             groundShader.setVec3("uLightDir", lightDir);
             groundShader.setVec3("uViewPos", camT->position);
             groundShader.setInt("uHasTexture", 1);
             groundShader.setInt("uFogEnabled", fogEnabled ? 1 : 0);
+            groundShader.setInt("uShadowsEnabled", 1);
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, snowTexture);
             groundShader.setInt("uTexture", 0);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
+            groundShader.setInt("uShadowMap", 1);
             glBindVertexArray(planeVAO);
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
             glBindVertexArray(0);
+
+            // Render sun billboard
+            if (cam && camT) {
+                glm::vec3 sunWorldPos = camT->position + lightDir * 400.0f;
+                glDisable(GL_DEPTH_TEST);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                sunShader.use();
+                sunShader.setMat4("uView", playView);
+                sunShader.setMat4("uProjection", projection);
+                sunShader.setVec3("uSunWorldPos", sunWorldPos);
+                sunShader.setFloat("uSize", 30.0f);
+
+                glBindVertexArray(sunVAO);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                glBindVertexArray(0);
+
+                glDisable(GL_BLEND);
+                glEnable(GL_DEPTH_TEST);
+            }
+
+            // Render snow overlay (fullscreen 2D effect)
+            if (snowEnabled) {
+                glDisable(GL_DEPTH_TEST);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                overlayShader.use();
+                overlayShader.setVec3("iResolution", glm::vec3((float)WINDOW_WIDTH, (float)WINDOW_HEIGHT, 1.0f));
+                overlayShader.setFloat("iTime", gameTime);
+                overlayShader.setFloat("uSnowSpeed", snowSpeed);
+                overlayShader.setFloat("uSnowDirectionDeg", snowAngle);
+                overlayShader.setFloat("uMotionBlur", snowMotionBlur);
+
+                glBindVertexArray(overlayVAO);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                glBindVertexArray(0);
+
+                glDisable(GL_BLEND);
+                glEnable(GL_DEPTH_TEST);
+            }
 
             // Build marker positions for minimap
             std::vector<glm::vec3> minimapMarkers;
@@ -685,7 +924,7 @@ int main(int argc, char* argv[]) {
             }
 
             // Render
-            glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
+            glClearColor(0.53f, 0.81f, 0.92f, 1.0f);  // Sky blue
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             // Draw debug axes with free camera view
@@ -729,15 +968,51 @@ int main(int argc, char* argv[]) {
             }
 
             // Menu navigation
-            if (input.upPressed || input.downPressed) {
-                pauseMenuSelection = 1 - pauseMenuSelection;  // Toggle between 0 and 1
+            if (input.upPressed) {
+                pauseMenuSelection = (pauseMenuSelection - 1 + PAUSE_MENU_ITEMS) % PAUSE_MENU_ITEMS;
+            }
+            if (input.downPressed) {
+                pauseMenuSelection = (pauseMenuSelection + 1) % PAUSE_MENU_ITEMS;
+            }
 
-                // Update menu colors
-                auto* fogText = registry.getUIText(pauseFogToggle);
-                auto* backText = registry.getUIText(pauseMenuOption);
-                if (fogText && backText) {
-                    fogText->color = (pauseMenuSelection == 0) ? menuColorSelected : menuColorUnselected;
-                    backText->color = (pauseMenuSelection == 1) ? menuColorSelected : menuColorUnselected;
+            // Update menu colors based on selection
+            if (input.upPressed || input.downPressed) {
+                registry.getUIText(pauseFogToggle)->color = (pauseMenuSelection == 0) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseSnowToggle)->color = (pauseMenuSelection == 1) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseSnowSpeed)->color = (pauseMenuSelection == 2) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseSnowAngle)->color = (pauseMenuSelection == 3) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseSnowBlur)->color = (pauseMenuSelection == 4) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseMenuOption)->color = (pauseMenuSelection == 5) ? menuColorSelected : menuColorUnselected;
+                uiSystem.clearCache();
+            }
+
+            // Handle left/right for speed, angle, and blur adjustment
+            if (input.leftPressed || input.rightPressed) {
+                float delta = input.rightPressed ? 1.0f : -1.0f;
+                if (pauseMenuSelection == 2) {
+                    // Adjust snow speed (0.1 to 10.0)
+                    snowSpeed = glm::clamp(snowSpeed + delta * 0.5f, 0.1f, 10.0f);
+                    char buf[48];
+                    snprintf(buf, sizeof(buf), "SNOW SPEED: %.1f  < >", snowSpeed);
+                    registry.getUIText(pauseSnowSpeed)->text = buf;
+                    uiSystem.clearCache();
+                }
+                else if (pauseMenuSelection == 3) {
+                    // Adjust snow angle (-180 to 180)
+                    snowAngle = snowAngle + delta * 10.0f;
+                    if (snowAngle > 180.0f) snowAngle -= 360.0f;
+                    if (snowAngle < -180.0f) snowAngle += 360.0f;
+                    char buf[48];
+                    snprintf(buf, sizeof(buf), "SNOW ANGLE: %.0f  < >", snowAngle);
+                    registry.getUIText(pauseSnowAngle)->text = buf;
+                    uiSystem.clearCache();
+                }
+                else if (pauseMenuSelection == 4) {
+                    // Adjust snow motion blur (0.0 to 5.0)
+                    snowMotionBlur = glm::clamp(snowMotionBlur + delta * 0.5f, 0.0f, 5.0f);
+                    char buf[48];
+                    snprintf(buf, sizeof(buf), "SNOW BLUR: %.1f  < >", snowMotionBlur);
+                    registry.getUIText(pauseSnowBlur)->text = buf;
                     uiSystem.clearCache();
                 }
             }
@@ -747,12 +1022,16 @@ int main(int argc, char* argv[]) {
                 if (pauseMenuSelection == 0) {
                     // Toggle fog
                     fogEnabled = !fogEnabled;
-                    auto* fogText = registry.getUIText(pauseFogToggle);
-                    if (fogText) {
-                        fogText->text = fogEnabled ? "FOG: YES" : "FOG: NO";
-                        uiSystem.clearCache();
-                    }
-                } else {
+                    registry.getUIText(pauseFogToggle)->text = fogEnabled ? "FOG: YES" : "FOG: NO";
+                    uiSystem.clearCache();
+                }
+                else if (pauseMenuSelection == 1) {
+                    // Toggle snow
+                    snowEnabled = !snowEnabled;
+                    registry.getUIText(pauseSnowToggle)->text = snowEnabled ? "SNOW: YES" : "SNOW: NO";
+                    uiSystem.clearCache();
+                }
+                else if (pauseMenuSelection == 5) {
                     // Back to main menu
                     sceneManager.switchTo(SceneType::MainMenu);
                 }

@@ -2,15 +2,18 @@
 in vec3 vNormal;
 in vec2 vTexCoord;
 in vec3 vFragPos;
+in vec4 vFragPosLightSpace;
 
 uniform sampler2D uTexture;
+uniform sampler2D uShadowMap;
 uniform vec3 uLightDir;
 uniform vec3 uViewPos;
 uniform int uHasTexture;
 uniform int uFogEnabled;
+uniform int uShadowsEnabled;
 
 // Fog parameters
-const vec3 fogColor = vec3(0.1, 0.1, 0.12);  // Match background
+const vec3 fogColor = vec3(0.53, 0.81, 0.92);  // Sky blue - match background
 const float fogDensity = 0.02;  // Much less dense
 const float fogDesaturation = 0.8;  // How much to desaturate at max fog
 
@@ -22,6 +25,58 @@ float luminance(vec3 c)
     return dot(c, vec3(0.299, 0.587, 0.114));
 }
 
+// Poisson disk samples for smooth shadow sampling
+const vec2 poissonDisk[16] = vec2[](
+    vec2(-0.94201624, -0.39906216),
+    vec2(0.94558609, -0.76890725),
+    vec2(-0.094184101, -0.92938870),
+    vec2(0.34495938, 0.29387760),
+    vec2(-0.91588581, 0.45771432),
+    vec2(-0.81544232, -0.87912464),
+    vec2(-0.38277543, 0.27676845),
+    vec2(0.97484398, 0.75648379),
+    vec2(0.44323325, -0.97511554),
+    vec2(0.53742981, -0.47373420),
+    vec2(-0.26496911, -0.41893023),
+    vec2(0.79197514, 0.19090188),
+    vec2(-0.24188840, 0.99706507),
+    vec2(-0.81409955, 0.91437590),
+    vec2(0.19984126, 0.78641367),
+    vec2(0.14383161, -0.14100790)
+);
+
+// Calculate soft shadow using Poisson disk sampling
+float calculateShadow(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir)
+{
+    // Perspective divide
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    projCoords = projCoords * 0.5 + 0.5;  // Transform to [0,1] range
+
+    // Outside shadow map bounds - no shadow
+    if (projCoords.z > 1.0 || projCoords.x < 0.0 || projCoords.x > 1.0 ||
+        projCoords.y < 0.0 || projCoords.y > 1.0)
+        return 0.0;
+
+    float currentDepth = projCoords.z;
+
+    // Bias to prevent shadow acne
+    float bias = max(0.005 * (1.0 - dot(normal, lightDir)), 0.001);
+
+    // Poisson disk sampling for smooth soft shadows
+    float shadow = 0.0;
+    vec2 texelSize = 1.0 / textureSize(uShadowMap, 0);
+    float spreadRadius = 4.0;  // How spread out the samples are
+
+    for (int i = 0; i < 16; ++i) {
+        vec2 offset = poissonDisk[i] * texelSize * spreadRadius;
+        float pcfDepth = texture(uShadowMap, projCoords.xy + offset).r;
+        shadow += currentDepth - bias > pcfDepth ? 1.0 : 0.0;
+    }
+    shadow /= 16.0;
+
+    return shadow;
+}
+
 void main()
 {
     vec3 normal = normalize(vNormal);
@@ -29,7 +84,15 @@ void main()
 
     float ambient = 0.3;
     float diff = max(dot(normal, lightDir), 0.0);
-    float light = ambient + diff * 0.7;
+
+    // Shadow calculation
+    float shadow = 0.0;
+    if (uShadowsEnabled == 1) {
+        shadow = calculateShadow(vFragPosLightSpace, normal, lightDir);
+    }
+
+    // Shadow reduces diffuse lighting, ambient stays constant
+    float light = ambient + diff * 0.7 * (1.0 - shadow);
 
     vec3 color;
     if (uHasTexture == 1)
