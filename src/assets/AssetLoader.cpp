@@ -125,6 +125,7 @@ Skeleton loadSkeleton(const tinygltf::Model& gltfModel, std::map<int, int>& node
         glm::mat4 nodeTransform = getNodeTransform(node);
         skeleton.joints[i].localTransform = nodeTransform;
         skeleton.bindPoseTransforms[i] = nodeTransform;  // Store bind pose
+        skeleton.jointNames[i] = node.name;              // Store joint name
         skeleton.joints[i].parentIndex = -1;
 
         for (size_t j = 0; j < skin.joints.size(); ++j) {
@@ -224,6 +225,8 @@ MeshGroup loadMeshes(const tinygltf::Model& gltfModel, const std::vector<GLuint>
             glGenVertexArrays(1, &mesh.vao);
             glBindVertexArray(mesh.vao);
 
+            size_t vertexCount = 0;
+
             // Positions
             {
                 auto it = primitive.attributes.find("POSITION");
@@ -237,6 +240,14 @@ MeshGroup loadMeshes(const tinygltf::Model& gltfModel, const std::vector<GLuint>
                 size_t dataSize = bufferView.byteLength;
                 int stride = bufferView.byteStride;
                 if (stride == 0) stride = getNumComponents(accessor.type) * getComponentByteSize(accessor.componentType);
+
+                // Store CPU-side positions
+                vertexCount = accessor.count;
+                mesh.skinnedVertices.resize(vertexCount);
+                for (size_t i = 0; i < vertexCount; ++i) {
+                    const float* v = reinterpret_cast<const float*>(dataPtr + i * stride);
+                    mesh.skinnedVertices[i].position = glm::vec3(v[0], v[1], v[2]);
+                }
 
                 GLuint vbo;
                 glGenBuffers(1, &vbo);
@@ -312,6 +323,15 @@ MeshGroup loadMeshes(const tinygltf::Model& gltfModel, const std::vector<GLuint>
                             else if (accessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
                                 jointData[i * 4 + j] = static_cast<float>(reinterpret_cast<const unsigned short*>(ptr)[j]);
                         }
+                        // Store CPU-side joint indices
+                        if (i < mesh.skinnedVertices.size()) {
+                            mesh.skinnedVertices[i].jointIndices = glm::ivec4(
+                                static_cast<int>(jointData[i * 4 + 0]),
+                                static_cast<int>(jointData[i * 4 + 1]),
+                                static_cast<int>(jointData[i * 4 + 2]),
+                                static_cast<int>(jointData[i * 4 + 3])
+                            );
+                        }
                     }
 
                     GLuint vbo;
@@ -337,6 +357,12 @@ MeshGroup loadMeshes(const tinygltf::Model& gltfModel, const std::vector<GLuint>
                     size_t dataSize = bufferView.byteLength;
                     int stride = bufferView.byteStride;
                     if (stride == 0) stride = getNumComponents(accessor.type) * getComponentByteSize(accessor.componentType);
+
+                    // Store CPU-side weights
+                    for (size_t i = 0; i < accessor.count && i < mesh.skinnedVertices.size(); ++i) {
+                        const float* w = reinterpret_cast<const float*>(dataPtr + i * stride);
+                        mesh.skinnedVertices[i].weights = glm::vec4(w[0], w[1], w[2], w[3]);
+                    }
 
                     GLuint vbo;
                     glGenBuffers(1, &vbo);

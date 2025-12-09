@@ -1,6 +1,14 @@
 #pragma once
 #include <glad/glad.h>
+#include <glm/glm.hpp>
 #include <vector>
+
+// CPU-side skinning data for a single vertex
+struct SkinnedVertex {
+    glm::vec3 position;      // Bind pose position
+    glm::ivec4 jointIndices; // Which bones affect this vertex
+    glm::vec4 weights;       // How much each bone affects it
+};
 
 struct Mesh {
     GLuint vao = 0;
@@ -8,6 +16,9 @@ struct Mesh {
     GLenum indexType = GL_UNSIGNED_SHORT;
     bool hasSkinning = false;
     GLuint texture = 0;
+
+    // CPU-side vertex data for skinning calculations
+    std::vector<SkinnedVertex> skinnedVertices;
 };
 
 struct MeshGroup {

@@ -13,8 +13,8 @@ public:
             if (!facing) return;
 
             facing->yaw -= mouseX * ft.sensitivity;
-            ft.pitch -= mouseY * ft.sensitivity;
-            ft.pitch = glm::clamp(ft.pitch, -60.0f, 80.0f);
+            ft.pitch += mouseY * ft.sensitivity;  // Inverted Y
+            ft.pitch = glm::clamp(ft.pitch, -60.0f, 60.0f);
         });
     }
 };

@@ -129,6 +129,8 @@
     <ClInclude Include="..\src\ui\TextCache.h" />
     <ClInclude Include="..\src\ui\UIRenderer.h" />
     <ClInclude Include="..\src\ecs\systems\FreeCameraSystem.h" />
+    <ClInclude Include="..\src\ecs\systems\TerrainSystem.h" />
+    <ClInclude Include="..\src\ecs\components\DynamicTerrain.h" />
     <ClInclude Include="..\src\scenes\SceneManager.h" />
   </ItemGroup>
 

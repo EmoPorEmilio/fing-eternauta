@@ -5,6 +5,9 @@
 
 class PlayerMovementSystem {
 public:
+    // Player collision radius for cylinder approximation
+    static constexpr float PLAYER_RADIUS = 0.4f;
+
     void update(Registry& registry, float dt) {
         const bool* keys = SDL_GetKeyboardState(nullptr);
 
@@ -46,7 +49,13 @@ public:
                 } else {
                     speed *= 0.5f;    // walking: half speed
                 }
-                transform.position += moveDir * speed * dt;
+
+                // Calculate desired new position
+                glm::vec3 desiredPos = transform.position + moveDir * speed * dt;
+
+                // Check collision with all box colliders and resolve
+                glm::vec3 resolvedPos = resolveCollisions(registry, entity, transform.position, desiredPos);
+                transform.position = resolvedPos;
             }
 
             // Play/stop animation based on movement
@@ -78,5 +87,76 @@ public:
                 }
             }
         });
+    }
+
+private:
+    // Resolve collisions between player cylinder and box colliders
+    // Uses sliding collision response - player slides along walls
+    glm::vec3 resolveCollisions(Registry& registry, Entity playerEntity,
+                                const glm::vec3& currentPos, const glm::vec3& desiredPos) {
+        glm::vec3 newPos = desiredPos;
+
+        // Check against all box colliders
+        registry.forEachBoxCollider([&](Entity boxEntity, Transform& boxTransform, BoxCollider& box) {
+            // Skip self-collision if player has a collider
+            if (boxEntity == playerEntity) return;
+
+            // Skip colliders that are hidden (below ground - building pool optimization)
+            if (boxTransform.position.y < -100.0f) return;
+
+            // Get box bounds in world space
+            // Note: buildings use scale for dimensions, so halfExtents come from scale
+            glm::vec3 boxCenter = boxTransform.position + box.offset;
+            glm::vec3 halfExtents = box.halfExtents * boxTransform.scale;
+
+            // For buildings, the box is centered at position with scale as dimensions
+            // The unit box mesh goes from Y=0 to Y=1, so center Y needs adjustment
+            boxCenter.y += halfExtents.y;  // Adjust center to middle of box
+
+            glm::vec3 boxMin = boxCenter - halfExtents;
+            glm::vec3 boxMax = boxCenter + halfExtents;
+
+            // Expand box by player radius for circle-vs-AABB collision
+            boxMin.x -= PLAYER_RADIUS;
+            boxMin.z -= PLAYER_RADIUS;
+            boxMax.x += PLAYER_RADIUS;
+            boxMax.z += PLAYER_RADIUS;
+
+            // Check if player (as a point after expansion) is inside expanded box (XZ plane)
+            // Only check XZ - we don't want to block vertical movement here
+            if (newPos.x > boxMin.x && newPos.x < boxMax.x &&
+                newPos.z > boxMin.z && newPos.z < boxMax.z &&
+                newPos.y < boxMax.y && newPos.y >= boxMin.y - 1.0f) {  // Height check with small tolerance
+
+                // Calculate penetration on each axis
+                float penLeft = newPos.x - boxMin.x;
+                float penRight = boxMax.x - newPos.x;
+                float penBack = newPos.z - boxMin.z;
+                float penFront = boxMax.z - newPos.z;
+
+                // Find minimum penetration axis for sliding response
+                float minPenX = std::min(penLeft, penRight);
+                float minPenZ = std::min(penBack, penFront);
+
+                // Push out on the axis with least penetration (sliding behavior)
+                if (minPenX < minPenZ) {
+                    // Push out on X axis
+                    if (penLeft < penRight) {
+                        newPos.x = boxMin.x;  // Push left
+                    } else {
+                        newPos.x = boxMax.x;  // Push right
+                    }
+                } else {
+                    // Push out on Z axis
+                    if (penBack < penFront) {
+                        newPos.z = boxMin.z;  // Push back
+                    } else {
+                        newPos.z = boxMax.z;  // Push front
+                    }
+                }
+            }
+        });
+
+        return newPos;
     }
 };

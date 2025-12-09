@@ -7,10 +7,11 @@ uniform sampler2D uTexture;
 uniform vec3 uLightDir;
 uniform vec3 uViewPos;
 uniform int uHasTexture;
+uniform int uFogEnabled;
 
 // Fog parameters
 const vec3 fogColor = vec3(0.1, 0.1, 0.12);  // Match background
-const float fogDensity = 0.08;
+const float fogDensity = 0.02;  // Much less dense
 const float fogDesaturation = 0.8;  // How much to desaturate at max fog
 
 out vec4 FragColor;
@@ -42,17 +43,21 @@ void main()
 
     vec3 litColor = color * light;
 
-    // Exponential squared fog
-    float distance = length(vFragPos - uViewPos);
-    float fogFactor = 1.0 - exp(-pow(fogDensity * distance, 2.0));
-    fogFactor = clamp(fogFactor, 0.0, 1.0);
+    vec3 finalColor = litColor;
 
-    // Desaturate based on fog amount
-    float gray = luminance(litColor);
-    vec3 desaturated = mix(litColor, vec3(gray), fogFactor * fogDesaturation);
+    if (uFogEnabled == 1) {
+        // Exponential squared fog
+        float distance = length(vFragPos - uViewPos);
+        float fogFactor = 1.0 - exp(-pow(fogDensity * distance, 2.0));
+        fogFactor = clamp(fogFactor, 0.0, 1.0);
 
-    // Blend with fog color
-    vec3 finalColor = mix(desaturated, fogColor, fogFactor);
+        // Desaturate based on fog amount
+        float gray = luminance(litColor);
+        vec3 desaturated = mix(litColor, vec3(gray), fogFactor * fogDesaturation);
+
+        // Blend with fog color
+        finalColor = mix(desaturated, fogColor, fogFactor);
+    }
 
     FragColor = vec4(finalColor, 1.0);
 }

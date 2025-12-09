@@ -9,7 +9,10 @@ public:
         m_colorShader.loadFromFiles("shaders/color.vert", "shaders/color.frag");
         m_modelShader.loadFromFiles("shaders/model.vert", "shaders/model.frag");
         m_skinnedShader.loadFromFiles("shaders/skinned.vert", "shaders/model.frag");
+        m_terrainShader.loadFromFiles("shaders/terrain.vert", "shaders/terrain.frag");
     }
+
+    void setFogEnabled(bool enabled) { m_fogEnabled = enabled; }
 
     void update(Registry& registry, float aspectRatio) {
         Entity camEntity = registry.getActiveCamera();
@@ -49,7 +52,13 @@ public:
             shader->use();
             shader->setMat4("uView", view);
             shader->setMat4("uProjection", projection);
-            shader->setMat4("uModel", transform.matrix());
+
+            // Apply mesh offset (for models with origin at hips instead of feet)
+            glm::mat4 model = transform.matrix();
+            if (renderable.meshOffset != glm::vec3(0.0f)) {
+                model = model * glm::translate(glm::mat4(1.0f), renderable.meshOffset);
+            }
+            shader->setMat4("uModel", model);
 
             bool hasTexture = false;
             for (const auto& mesh : meshGroup.meshes) {
@@ -61,6 +70,7 @@ public:
                 shader->setVec3("uViewPos", camTransform->position);
                 shader->setInt("uTexture", 0);
                 shader->setInt("uHasTexture", hasTexture ? 1 : 0);
+                shader->setInt("uFogEnabled", m_fogEnabled ? 1 : 0);
             }
 
             if (renderable.shader == ShaderType::Skinned) {
@@ -69,6 +79,11 @@ public:
                 if (skeleton && !skeleton->boneMatrices.empty()) {
                     shader->setMat4Array("uBones", skeleton->boneMatrices);
                 }
+            }
+
+            if (renderable.shader == ShaderType::Terrain) {
+                shader->setVec3("uLightDir", lightDir);
+                shader->setVec3("uViewPos", camTransform->position);
             }
 
             for (const auto& mesh : meshGroup.meshes) {
@@ -104,7 +119,13 @@ public:
             shader->use();
             shader->setMat4("uView", view);
             shader->setMat4("uProjection", projection);
-            shader->setMat4("uModel", transform.matrix());
+
+            // Apply mesh offset (for models with origin at hips instead of feet)
+            glm::mat4 model = transform.matrix();
+            if (renderable.meshOffset != glm::vec3(0.0f)) {
+                model = model * glm::translate(glm::mat4(1.0f), renderable.meshOffset);
+            }
+            shader->setMat4("uModel", model);
 
             bool hasTexture = false;
             for (const auto& mesh : meshGroup.meshes) {
@@ -116,6 +137,7 @@ public:
                 shader->setVec3("uViewPos", camTransform->position);
                 shader->setInt("uTexture", 0);
                 shader->setInt("uHasTexture", hasTexture ? 1 : 0);
+                shader->setInt("uFogEnabled", m_fogEnabled ? 1 : 0);
             }
 
             if (renderable.shader == ShaderType::Skinned) {
@@ -124,6 +146,11 @@ public:
                 if (skeleton && !skeleton->boneMatrices.empty()) {
                     shader->setMat4Array("uBones", skeleton->boneMatrices);
                 }
+            }
+
+            if (renderable.shader == ShaderType::Terrain) {
+                shader->setVec3("uLightDir", lightDir);
+                shader->setVec3("uViewPos", camTransform->position);
             }
 
             for (const auto& mesh : meshGroup.meshes) {
@@ -144,12 +171,15 @@ private:
     Shader m_colorShader;
     Shader m_modelShader;
     Shader m_skinnedShader;
+    Shader m_terrainShader;
+    bool m_fogEnabled = false;
 
     Shader* getShader(ShaderType type) {
         switch (type) {
             case ShaderType::Color: return &m_colorShader;
             case ShaderType::Model: return &m_modelShader;
             case ShaderType::Skinned: return &m_skinnedShader;
+            case ShaderType::Terrain: return &m_terrainShader;
         }
         return nullptr;
     }

@@ -4,7 +4,9 @@
 #include <glad/glad.h>
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
+#include <stb_image.h>
 #include <iostream>
+#include <vector>
 
 #include "src/ecs/Registry.h"
 #include "src/ecs/systems/InputSystem.h"
@@ -18,10 +20,12 @@
 #include "src/ecs/systems/FollowCameraSystem.h"
 #include "src/ecs/systems/FreeCameraSystem.h"
 #include "src/ecs/systems/UISystem.h"
+#include "src/ecs/systems/MinimapSystem.h"
 #include "src/assets/AssetLoader.h"
 #include "src/DebugRenderer.h"
 #include "src/Shader.h"
 #include "src/scenes/SceneManager.h"
+#include "src/procedural/BuildingGenerator.h"
 
 int main(int argc, char* argv[]) {
     // SDL3 init
@@ -42,6 +46,7 @@ int main(int argc, char* argv[]) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
     const int WINDOW_WIDTH = 1280;
     const int WINDOW_HEIGHT = 720;
@@ -102,12 +107,18 @@ int main(int argc, char* argv[]) {
         std::cerr << "Failed to initialize UI system" << std::endl;
     }
 
+    MinimapSystem minimapSystem;
+    minimapSystem.init();
+
     // Load UI fonts
     if (!uiSystem.fonts().loadFont("oxanium", "assets/fonts/Oxanium.ttf", 28)) {
         std::cerr << "Failed to load Oxanium font" << std::endl;
     }
     if (!uiSystem.fonts().loadFont("oxanium_large", "assets/fonts/Oxanium.ttf", 48)) {
         std::cerr << "Failed to load Oxanium large font" << std::endl;
+    }
+    if (!uiSystem.fonts().loadFont("oxanium_small", "assets/fonts/Oxanium.ttf", 17)) {
+        std::cerr << "Failed to load Oxanium small font" << std::endl;
     }
 
     inputSystem.setWindow(window);
@@ -118,12 +129,13 @@ int main(int argc, char* argv[]) {
     // Create protagonist entity
     Entity protagonist = registry.create();
     Transform protagonistTransform;
-    protagonistTransform.position = glm::vec3(0.0f, 0.25f, 0.0f);
+    protagonistTransform.position = glm::vec3(0.0f, 0.0f, 0.0f);
     protagonistTransform.scale = glm::vec3(0.01f);
     registry.addTransform(protagonist, protagonistTransform);
     registry.addMeshGroup(protagonist, std::move(protagonistData.meshGroup));
     Renderable protagonistRenderable;
     protagonistRenderable.shader = ShaderType::Skinned;
+    protagonistRenderable.meshOffset = glm::vec3(0.0f, -25.0f, 0.0f);  // Lower mesh so feet touch ground
     registry.addRenderable(protagonist, protagonistRenderable);
 
     // Add player controller
@@ -149,22 +161,96 @@ int main(int argc, char* argv[]) {
         registry.addAnimation(protagonist, anim);
     }
 
+    // Load modelo_fing (building/landmark) - high detail and LOD versions
+    LoadedModel fingBuildingData = loadGLB("assets/modelo_fing.glb");
+    LoadedModel fingBuildingLodData = loadGLB("assets/fing_lod.glb");
+
+    // Store both mesh groups for LOD switching
+    MeshGroup fingHighDetail = std::move(fingBuildingData.meshGroup);
+    MeshGroup fingLowDetail = std::move(fingBuildingLodData.meshGroup);
+
+    Entity fingBuilding = registry.create();
+    Transform fingTransform;
+    // Move fing building outside the procedural grid (grid spans roughly -56 to +56)
+    fingTransform.position = glm::vec3(80.0f, 10.0f, 80.0f);  // Outside grid, raised high
+    fingTransform.rotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));  // Rotate to stand upright
+    fingTransform.scale = glm::vec3(2.5f);  // 2x larger (was 1.25)
+    registry.addTransform(fingBuilding, fingTransform);
+    registry.addMeshGroup(fingBuilding, MeshGroup{fingLowDetail.meshes});  // Start with LOD (far away)
+    Renderable fingRenderable;
+    fingRenderable.shader = ShaderType::Model;  // Non-animated model
+    registry.addRenderable(fingBuilding, fingRenderable);
+
+    // LOD settings
+    const float lodSwitchDistance = 70.0f;  // Distance to switch between high/low detail
+    bool fingUsingHighDetail = false;  // Track current LOD state
+
+    // Generate procedural buildings data (100x100 grid = 10,000 buildings)
+    std::vector<BuildingGenerator::BuildingData> buildingDataList = BuildingGenerator::generateBuildingGrid(12345);
+    Mesh buildingBoxMesh = BuildingGenerator::createUnitBoxMesh();  // Shared mesh for all buildings
+    std::cout << "Generated building data for " << buildingDataList.size() << " buildings" << std::endl;
+
+    // Culling parameters: only render buildings within this radius of player's grid cell
+    const int BUILDING_RENDER_RADIUS = 3;  // 3x3 = 7x7 grid around player (49 buildings max)
+    const int MAX_VISIBLE_BUILDINGS = (2 * BUILDING_RENDER_RADIUS + 1) * (2 * BUILDING_RENDER_RADIUS + 1);
+
+    // Create a pool of building entities that will be reused
+    std::vector<Entity> buildingEntityPool;
+    buildingEntityPool.reserve(MAX_VISIBLE_BUILDINGS);
+
+    for (int i = 0; i < MAX_VISIBLE_BUILDINGS; ++i) {
+        Entity buildingEntity = registry.create();
+
+        Transform buildingTransform;
+        buildingTransform.position = glm::vec3(0.0f, -1000.0f, 0.0f);  // Start hidden below ground
+        buildingTransform.scale = glm::vec3(1.0f);
+        registry.addTransform(buildingEntity, buildingTransform);
+
+        MeshGroup buildingMeshGroup;
+        buildingMeshGroup.meshes.push_back(buildingBoxMesh);
+        registry.addMeshGroup(buildingEntity, std::move(buildingMeshGroup));
+
+        Renderable buildingRenderable;
+        buildingRenderable.shader = ShaderType::Model;
+        registry.addRenderable(buildingEntity, buildingRenderable);
+
+        // Add box collider for collision detection
+        // halfExtents are (0.5, 0.5, 0.5) for unit box - will be scaled by transform.scale
+        BoxCollider buildingCollider;
+        buildingCollider.halfExtents = glm::vec3(0.5f);  // Unit box half-extents
+        buildingCollider.offset = glm::vec3(0.0f);
+        registry.addBoxCollider(buildingEntity, buildingCollider);
+
+        buildingEntityPool.push_back(buildingEntity);
+    }
+    std::cout << "Created building entity pool with " << buildingEntityPool.size() << " entities" << std::endl;
+
+    // Track which buildings are currently visible (for culling updates)
+    int lastPlayerGridX = -9999;
+    int lastPlayerGridZ = -9999;
+
+    // Get building footprints for minimap (all buildings for now - could optimize later)
+    auto buildingFootprints = BuildingGenerator::getBuildingFootprints(buildingDataList);
+
     // Create ground plane
     const float planeSize = 500.0f;
+    const float texScale = 0.5f;  // Same as terrain - tiles every 2 units
+    const float uvScale = planeSize * texScale;
+
     Entity ground = registry.create();
     Transform groundTransform;
     groundTransform.position = glm::vec3(0.0f, 0.0f, 0.0f);
     registry.addTransform(ground, groundTransform);
 
-    // Create plane mesh (position, normal, uv)
+    // Create plane mesh (position, normal, uv) with tiled UVs
     float planeVertices[] = {
-        // Position              // Normal       // UV
-        -planeSize, 0.0f, -planeSize,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f,
-         planeSize, 0.0f, -planeSize,  0.0f, 1.0f, 0.0f,  1.0f, 0.0f,
-         planeSize, 0.0f,  planeSize,  0.0f, 1.0f, 0.0f,  1.0f, 1.0f,
-        -planeSize, 0.0f,  planeSize,  0.0f, 1.0f, 0.0f,  0.0f, 1.0f,
+        // Position              // Normal       // UV (tiled based on world position)
+        -planeSize, 0.0f, -planeSize,  0.0f, 1.0f, 0.0f,  -uvScale, -uvScale,
+         planeSize, 0.0f, -planeSize,  0.0f, 1.0f, 0.0f,   uvScale, -uvScale,
+         planeSize, 0.0f,  planeSize,  0.0f, 1.0f, 0.0f,   uvScale,  uvScale,
+        -planeSize, 0.0f,  planeSize,  0.0f, 1.0f, 0.0f,  -uvScale,  uvScale,
     };
-    unsigned short planeIndices[] = { 0, 1, 2, 0, 2, 3 };
+    unsigned short planeIndices[] = { 0, 3, 2, 0, 2, 1 };  // CCW winding when viewed from above
 
     GLuint planeVAO, planeVBO, planeEBO;
     glGenVertexArrays(1, &planeVAO);
@@ -189,20 +275,39 @@ int main(int argc, char* argv[]) {
 
     glBindVertexArray(0);
 
+    // Load snow texture for ground plane
+    GLuint snowTexture = 0;
+    {
+        int width, height, channels;
+        // Don't flip - most textures don't need it
+        unsigned char* data = stbi_load("assets/textures/snow.jpg", &width, &height, &channels, 0);
+        if (data) {
+            glGenTextures(1, &snowTexture);
+            glBindTexture(GL_TEXTURE_2D, snowTexture);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            GLenum format = (channels == 4) ? GL_RGBA : GL_RGB;
+            glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+            glGenerateMipmap(GL_TEXTURE_2D);
+            stbi_image_free(data);
+            std::cout << "Loaded ground texture: assets/textures/snow.jpg (" << width << "x" << height << ")" << std::endl;
+        } else {
+            std::cerr << "Failed to load ground texture: assets/textures/snow.jpg" << std::endl;
+        }
+    }
+
     Mesh planeMesh;
     planeMesh.vao = planeVAO;
     planeMesh.indexCount = 6;
     planeMesh.indexType = GL_UNSIGNED_SHORT;
     planeMesh.hasSkinning = false;
-    planeMesh.texture = 0;
+    planeMesh.texture = snowTexture;
 
     MeshGroup groundMeshGroup;
     groundMeshGroup.meshes.push_back(planeMesh);
     registry.addMeshGroup(ground, std::move(groundMeshGroup));
-
-    Renderable groundRenderable;
-    groundRenderable.shader = ShaderType::Model;
-    registry.addRenderable(ground, groundRenderable);
 
     // Ground collider (large flat box)
     BoxCollider groundCollider;
@@ -278,6 +383,35 @@ int main(int argc, char* argv[]) {
     godModeText.visible = false;
     registry.addUIText(godModeHint, godModeText);
 
+    // Pause menu UI
+    Entity pauseFogToggle = registry.create();
+    UIText fogToggleText;
+    fogToggleText.text = "FOG: NO";
+    fogToggleText.fontId = "oxanium_large";
+    fogToggleText.fontSize = 48;
+    fogToggleText.anchor = AnchorPoint::Center;
+    fogToggleText.offset = glm::vec2(0.0f, -30.0f);
+    fogToggleText.horizontalAlign = HorizontalAlign::Center;
+    fogToggleText.color = glm::vec4(255.0f, 255.0f, 255.0f, 255.0f);
+    fogToggleText.visible = false;
+    registry.addUIText(pauseFogToggle, fogToggleText);
+
+    Entity pauseMenuOption = registry.create();
+    UIText pauseMenuText;
+    pauseMenuText.text = "BACK TO MAIN MENU";
+    pauseMenuText.fontId = "oxanium_large";
+    pauseMenuText.fontSize = 48;
+    pauseMenuText.anchor = AnchorPoint::Center;
+    pauseMenuText.offset = glm::vec2(0.0f, 30.0f);
+    pauseMenuText.horizontalAlign = HorizontalAlign::Center;
+    pauseMenuText.color = glm::vec4(128.0f, 128.0f, 128.0f, 255.0f);
+    pauseMenuText.visible = false;
+    registry.addUIText(pauseMenuOption, pauseMenuText);
+
+    // Ground plane shader (uses model shader)
+    Shader groundShader;
+    groundShader.loadFromFiles("shaders/model.vert", "shaders/model.frag");
+
     // Debug axes
     Shader colorShader;
     colorShader.loadFromFiles("shaders/color.vert", "shaders/color.frag");
@@ -291,8 +425,12 @@ int main(int argc, char* argv[]) {
 
     // Menu state
     int menuSelection = 0;  // 0 = Play Game, 1 = God Mode
+    int pauseMenuSelection = 0;  // 0 = Fog toggle, 1 = Back to main menu
     const glm::vec4 menuColorSelected(255.0f, 255.0f, 255.0f, 255.0f);
     const glm::vec4 menuColorUnselected(128.0f, 128.0f, 128.0f, 255.0f);
+
+    // Game settings
+    bool fogEnabled = false;
 
     // Game loop
     bool running = true;
@@ -314,6 +452,8 @@ int main(int argc, char* argv[]) {
             registry.getUIText(menuOption2)->visible = false;
             registry.getUIText(sprintHint)->visible = false;
             registry.getUIText(godModeHint)->visible = false;
+            registry.getUIText(pauseFogToggle)->visible = false;
+            registry.getUIText(pauseMenuOption)->visible = false;
 
             if (scene == SceneType::MainMenu) {
                 inputSystem.captureMouse(false);
@@ -325,14 +465,16 @@ int main(int argc, char* argv[]) {
                 inputSystem.captureMouse(true);
                 registry.getUIText(sprintHint)->visible = true;
 
-                // Reset protagonist position
-                auto* pt = registry.getTransform(protagonist);
-                if (pt) {
-                    pt->position = glm::vec3(0.0f, 0.25f, 0.0f);
-                }
-                auto* pf = registry.getFacingDirection(protagonist);
-                if (pf) {
-                    pf->yaw = 0.0f;
+                // Only reset protagonist position when coming from main menu
+                if (sceneManager.previous() == SceneType::MainMenu) {
+                    auto* pt = registry.getTransform(protagonist);
+                    if (pt) {
+                        pt->position = glm::vec3(0.0f, 0.25f, 0.0f);
+                    }
+                    auto* pf = registry.getFacingDirection(protagonist);
+                    if (pf) {
+                        pf->yaw = 0.0f;
+                    }
                 }
             }
             else if (scene == SceneType::GodMode) {
@@ -345,6 +487,16 @@ int main(int argc, char* argv[]) {
                     ct->position = glm::vec3(5.0f, 3.0f, 5.0f);
                 }
                 freeCameraSystem.setPosition(glm::vec3(5.0f, 3.0f, 5.0f), -45.0f, -15.0f);
+            }
+            else if (scene == SceneType::PauseMenu) {
+                inputSystem.captureMouse(false);
+                pauseMenuSelection = 0;  // Reset to first option
+                registry.getUIText(pauseFogToggle)->visible = true;
+                registry.getUIText(pauseMenuOption)->visible = true;
+                // Update colors based on selection
+                registry.getUIText(pauseFogToggle)->color = menuColorSelected;
+                registry.getUIText(pauseMenuOption)->color = menuColorUnselected;
+                uiSystem.clearCache();
             }
         }
 
@@ -382,9 +534,9 @@ int main(int argc, char* argv[]) {
             uiSystem.update(registry, WINDOW_WIDTH, WINDOW_HEIGHT);
         }
         else if (currentScene == SceneType::PlayGame) {
-            // Return to menu on escape
+            // Open pause menu on escape
             if (input.escapePressed) {
-                sceneManager.switchTo(SceneType::MainMenu);
+                sceneManager.switchTo(SceneType::PauseMenu);
             }
 
             // Update gameplay systems
@@ -396,35 +548,117 @@ int main(int argc, char* argv[]) {
             animationSystem.update(registry, dt);
             skeletonSystem.update(registry);
 
+            // LOD update for fing building
+            auto* protagonistT = registry.getTransform(protagonist);
+            auto* fingBuildingT = registry.getTransform(fingBuilding);
+            if (protagonistT && fingBuildingT) {
+                float distToBuilding = glm::length(protagonistT->position - fingBuildingT->position);
+                bool shouldUseHighDetail = distToBuilding < lodSwitchDistance;
+
+                if (shouldUseHighDetail != fingUsingHighDetail) {
+                    fingUsingHighDetail = shouldUseHighDetail;
+                    auto* meshGroup = registry.getMeshGroup(fingBuilding);
+                    if (meshGroup) {
+                        meshGroup->meshes = fingUsingHighDetail ? fingHighDetail.meshes : fingLowDetail.meshes;
+                    }
+                }
+            }
+
+            // Building culling: update visible buildings based on player position
+            if (protagonistT) {
+                auto [playerGridX, playerGridZ] = BuildingGenerator::getPlayerGridCell(protagonistT->position);
+
+                // Only update if player moved to a different grid cell
+                if (playerGridX != lastPlayerGridX || playerGridZ != lastPlayerGridZ) {
+                    lastPlayerGridX = playerGridX;
+                    lastPlayerGridZ = playerGridZ;
+
+                    // Collect buildings in range
+                    std::vector<const BuildingGenerator::BuildingData*> visibleBuildings;
+                    for (const auto& bldg : buildingDataList) {
+                        if (BuildingGenerator::isBuildingInRange(bldg, playerGridX, playerGridZ, BUILDING_RENDER_RADIUS)) {
+                            visibleBuildings.push_back(&bldg);
+                        }
+                    }
+
+                    // Update entity pool with visible buildings
+                    size_t entityIdx = 0;
+                    for (const auto* bldg : visibleBuildings) {
+                        if (entityIdx >= buildingEntityPool.size()) break;
+
+                        auto* transform = registry.getTransform(buildingEntityPool[entityIdx]);
+                        if (transform) {
+                            transform->position = bldg->position;
+                            transform->scale = glm::vec3(bldg->width, bldg->height, bldg->depth);
+                        }
+                        ++entityIdx;
+                    }
+
+                    // Hide remaining entities in the pool
+                    for (; entityIdx < buildingEntityPool.size(); ++entityIdx) {
+                        auto* transform = registry.getTransform(buildingEntityPool[entityIdx]);
+                        if (transform) {
+                            transform->position.y = -1000.0f;  // Hide below ground
+                        }
+                    }
+                }
+            }
+
             // Render
             glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            // Draw debug axes
+            // Draw debug axes and compute view matrix
             auto* cam = registry.getCamera(camera);
             auto* camT = registry.getTransform(camera);
-            auto* protagonistT = registry.getTransform(protagonist);
             auto* protagonistFacing = registry.getFacingDirection(protagonist);
             auto* ft = registry.getFollowTarget(camera);
+            glm::mat4 playView;
             if (cam && camT && protagonistT && protagonistFacing && ft) {
-                float yawRad = glm::radians(protagonistFacing->yaw);
-                glm::vec3 forward(-sin(yawRad), 0.0f, -cos(yawRad));
-                glm::vec3 lookAtPos = protagonistT->position + forward * ft->lookAhead;
-                lookAtPos.y += 1.0f;
-                glm::mat4 view = glm::lookAt(camT->position, lookAtPos, glm::vec3(0.0f, 1.0f, 0.0f));
-                glm::mat4 vp = cam->projectionMatrix(aspectRatio) * view;
+                glm::vec3 lookAtPos = FollowCameraSystem::getLookAtPosition(*protagonistT, *ft, protagonistFacing->yaw);
+                playView = glm::lookAt(camT->position, lookAtPos, glm::vec3(0.0f, 1.0f, 0.0f));
+                glm::mat4 vp = cam->projectionMatrix(aspectRatio) * playView;
                 colorShader.use();
                 colorShader.setMat4("uMVP", vp);
                 axes.draw();
             }
 
+            renderSystem.setFogEnabled(fogEnabled);
             renderSystem.update(registry, aspectRatio);
+
+            // Render ground plane
+            glm::mat4 projection = cam->projectionMatrix(aspectRatio);
+            glm::vec3 lightDir = glm::normalize(glm::vec3(0.5f, 1.0f, 0.3f));
+            groundShader.use();
+            groundShader.setMat4("uView", playView);
+            groundShader.setMat4("uProjection", projection);
+            groundShader.setMat4("uModel", glm::mat4(1.0f));
+            groundShader.setVec3("uLightDir", lightDir);
+            groundShader.setVec3("uViewPos", camT->position);
+            groundShader.setInt("uHasTexture", 1);
+            groundShader.setInt("uFogEnabled", fogEnabled ? 1 : 0);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, snowTexture);
+            groundShader.setInt("uTexture", 0);
+            glBindVertexArray(planeVAO);
+            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
+            glBindVertexArray(0);
+
+            // Build marker positions for minimap
+            std::vector<glm::vec3> minimapMarkers;
+            if (fingBuildingT) {
+                minimapMarkers.push_back(fingBuildingT->position);
+            }
+            minimapSystem.render(WINDOW_WIDTH, WINDOW_HEIGHT, protagonistFacing ? protagonistFacing->yaw : 0.0f,
+                                 uiSystem.fonts(), uiSystem.textCache(),
+                                 protagonistT ? protagonistT->position : glm::vec3(0.0f), minimapMarkers,
+                                 buildingFootprints);
             uiSystem.update(registry, WINDOW_WIDTH, WINDOW_HEIGHT);
         }
         else if (currentScene == SceneType::GodMode) {
-            // Return to menu on escape
+            // Open pause menu on escape
             if (input.escapePressed) {
-                sceneManager.switchTo(SceneType::MainMenu);
+                sceneManager.switchTo(SceneType::PauseMenu);
             }
 
             // Free camera control
@@ -433,6 +667,22 @@ int main(int argc, char* argv[]) {
             // Still update animations for visual effect
             animationSystem.update(registry, dt);
             skeletonSystem.update(registry);
+
+            // LOD update for fing building (based on camera distance in god mode)
+            auto* camT_lod = registry.getTransform(camera);
+            auto* fingBuildingT_lod = registry.getTransform(fingBuilding);
+            if (camT_lod && fingBuildingT_lod) {
+                float distToBuilding = glm::length(camT_lod->position - fingBuildingT_lod->position);
+                bool shouldUseHighDetail = distToBuilding < lodSwitchDistance;
+
+                if (shouldUseHighDetail != fingUsingHighDetail) {
+                    fingUsingHighDetail = shouldUseHighDetail;
+                    auto* meshGroup = registry.getMeshGroup(fingBuilding);
+                    if (meshGroup) {
+                        meshGroup->meshes = fingUsingHighDetail ? fingHighDetail.meshes : fingLowDetail.meshes;
+                    }
+                }
+            }
 
             // Render
             glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
@@ -448,8 +698,71 @@ int main(int argc, char* argv[]) {
                 colorShader.setMat4("uMVP", vp);
                 axes.draw();
 
+                renderSystem.setFogEnabled(fogEnabled);
                 renderSystem.updateWithView(registry, aspectRatio, view);
+
+                // Render ground plane
+                glm::mat4 projection = cam->projectionMatrix(aspectRatio);
+                glm::vec3 lightDir = glm::normalize(glm::vec3(0.5f, 1.0f, 0.3f));
+                groundShader.use();
+                groundShader.setMat4("uView", view);
+                groundShader.setMat4("uProjection", projection);
+                groundShader.setMat4("uModel", glm::mat4(1.0f));
+                groundShader.setVec3("uLightDir", lightDir);
+                groundShader.setVec3("uViewPos", camT->position);
+                groundShader.setInt("uHasTexture", 1);
+                groundShader.setInt("uFogEnabled", fogEnabled ? 1 : 0);
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, snowTexture);
+                groundShader.setInt("uTexture", 0);
+                glBindVertexArray(planeVAO);
+                glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
+                glBindVertexArray(0);
             }
+            minimapSystem.render(WINDOW_WIDTH, WINDOW_HEIGHT);
+            uiSystem.update(registry, WINDOW_WIDTH, WINDOW_HEIGHT);
+        }
+        else if (currentScene == SceneType::PauseMenu) {
+            // Resume game on escape
+            if (input.escapePressed) {
+                sceneManager.switchTo(sceneManager.previous());
+            }
+
+            // Menu navigation
+            if (input.upPressed || input.downPressed) {
+                pauseMenuSelection = 1 - pauseMenuSelection;  // Toggle between 0 and 1
+
+                // Update menu colors
+                auto* fogText = registry.getUIText(pauseFogToggle);
+                auto* backText = registry.getUIText(pauseMenuOption);
+                if (fogText && backText) {
+                    fogText->color = (pauseMenuSelection == 0) ? menuColorSelected : menuColorUnselected;
+                    backText->color = (pauseMenuSelection == 1) ? menuColorSelected : menuColorUnselected;
+                    uiSystem.clearCache();
+                }
+            }
+
+            // Handle enter
+            if (input.enterPressed) {
+                if (pauseMenuSelection == 0) {
+                    // Toggle fog
+                    fogEnabled = !fogEnabled;
+                    auto* fogText = registry.getUIText(pauseFogToggle);
+                    if (fogText) {
+                        fogText->text = fogEnabled ? "FOG: YES" : "FOG: NO";
+                        uiSystem.clearCache();
+                    }
+                } else {
+                    // Back to main menu
+                    sceneManager.switchTo(SceneType::MainMenu);
+                }
+            }
+
+            // Clear with black for menu
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            // Only render UI
             uiSystem.update(registry, WINDOW_WIDTH, WINDOW_HEIGHT);
         }
 

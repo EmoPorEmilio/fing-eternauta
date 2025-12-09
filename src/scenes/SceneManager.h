@@ -3,7 +3,8 @@
 enum class SceneType {
     MainMenu,
     PlayGame,
-    GodMode
+    GodMode,
+    PauseMenu
 };
 
 class SceneManager {

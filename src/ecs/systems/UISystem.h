@@ -23,6 +23,8 @@ public:
     FontManager& fonts() { return m_fontManager; }
     const FontManager& fonts() const { return m_fontManager; }
 
+    TextCache& textCache() { return m_textCache; }
+
     void update(Registry& registry, int screenWidth, int screenHeight) {
         m_renderer.beginFrame(screenWidth, screenHeight);
 
