@@ -16,6 +16,7 @@ uniform vec3 uFallDirection;   // Normalized direction of fall
 uniform float uScale;          // Comet scale
 uniform int uDebugMode;        // 1 = show stationary comet for orientation testing
 uniform float uTrailStretch;   // How much to stretch along velocity for motion blur trail
+uniform float uGroundY;        // Y level of ground plane - comets reset when below this
 
 out vec3 vNormal;
 out vec2 vTexCoord;
@@ -69,8 +70,19 @@ void main()
         float dirVarZ = cos(instanceSeed * 1.5) * 0.15;
         vec3 instanceFallDir = normalize(uFallDirection + vec3(dirVarX, 0.0, dirVarZ));
 
-        float t = mod(uTime * uFallSpeed + timeOffset, uCycleTime) / uCycleTime;
-        vec3 cometPos = startPos + instanceFallDir * t * uFallDistance;
+        // Calculate how far the comet needs to travel to go from start to ground
+        // startPos.y + instanceFallDir.y * distance = groundY - cameraPos.y
+        // We want comet to reset when its world Y goes below ground
+        float startWorldY = uCameraPos.y + startPos.y;
+        float yDrop = startWorldY - uGroundY;  // How far in Y the comet needs to fall
+        float distanceToGround = yDrop / abs(instanceFallDir.y);  // Total distance along fall direction
+
+        // Use this distance for the cycle instead of fixed uFallDistance
+        float effectiveFallDistance = max(distanceToGround, uFallDistance);
+        float effectiveCycleTime = effectiveFallDistance / (uFallDistance / uCycleTime);  // Keep same speed
+
+        float t = mod(uTime * uFallSpeed + timeOffset, effectiveCycleTime) / effectiveCycleTime;
+        vec3 cometPos = startPos + instanceFallDir * t * effectiveFallDistance;
         vec3 worldCometPos = uCameraPos + cometPos;
 
         // Rotate comet to face its own fall direction (nose pointing where it's going)

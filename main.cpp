@@ -1035,11 +1035,12 @@ int main(int argc, char* argv[]) {
                 cometShader.setFloat("uFallSpeed", COMET_FALL_SPEED);
                 cometShader.setFloat("uCycleTime", COMET_CYCLE_TIME);
                 cometShader.setFloat("uFallDistance", COMET_FALL_DISTANCE);
-                // More diagonal fall for menu backdrop (mostly horizontal)
-                cometShader.setVec3("uFallDirection", glm::normalize(glm::vec3(0.7f, -0.3f, 0.5f)));
+                // More diagonal fall for menu backdrop (nearly horizontal)
+                cometShader.setVec3("uFallDirection", glm::normalize(glm::vec3(0.85f, -0.12f, 0.4f)));
                 cometShader.setFloat("uScale", COMET_SCALE);
                 cometShader.setInt("uDebugMode", 0);
                 cometShader.setFloat("uTrailStretch", 15.0f);
+                cometShader.setFloat("uGroundY", 0.0f);  // Ground plane at Y=0
                 cometShader.setInt("uHasTexture", 0);
                 cometShader.setVec3("uCometColor", glm::vec3(1.0f, 0.4f, 0.1f));
 
@@ -1245,6 +1246,7 @@ int main(int argc, char* argv[]) {
                 cometShader.setInt("uDebugMode", 0);  // Set to 1 to debug comet orientation
                 cometShader.setInt("uTexture", 0);   // Texture unit 0
                 cometShader.setFloat("uTrailStretch", 15.0f);  // Motion blur trail stretch (exaggerated)
+                cometShader.setFloat("uGroundY", 0.0f);  // Ground plane at Y=0
 
                 for (const auto& mesh : cometMeshGroup.meshes) {
                     // Bind texture if available
@@ -1480,6 +1482,7 @@ int main(int argc, char* argv[]) {
                 cometShader.setInt("uDebugMode", 0);  // Set to 1 to debug comet orientation
                 cometShader.setInt("uTexture", 0);   // Texture unit 0
                 cometShader.setFloat("uTrailStretch", 15.0f);  // Motion blur trail stretch (exaggerated)
+                cometShader.setFloat("uGroundY", 0.0f);  // Ground plane at Y=0
 
                 for (const auto& mesh : cometMeshGroup.meshes) {
                     // Bind texture if available
