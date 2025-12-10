@@ -41,7 +41,11 @@ public:
 
     // Render text to texture (returns cached version if exists)
     TextTexture render(const Font& font, const std::string& text, const TextStyle& style) {
-        if (!font.isValid() || text.empty()) {
+        if (!font.isValid()) {
+            std::cerr << "TextCache::render - font not valid for text: " << text << std::endl;
+            return {};
+        }
+        if (text.empty()) {
             return {};
         }
 
@@ -54,41 +58,21 @@ public:
 
         TTF_Font* ttfFont = font.handle();
 
-        // Stroke settings
-        const int outlineSize = 1;
-        SDL_Color outlineColor = {0, 0, 0, 255};  // Black outline
         SDL_Color textColor = {style.r, style.g, style.b, style.a};
 
-        // Render outline first (set outline, render, reset)
-        TTF_SetFontOutline(ttfFont, outlineSize);
-        SDL_Surface* outlineSurface = TTF_RenderText_Blended(ttfFont, text.c_str(), 0, outlineColor);
-        TTF_SetFontOutline(ttfFont, 0);
-
-        if (!outlineSurface) {
-            return {};
-        }
-
-        // Render main text
+        // Simple rendering (no outline - some fonts like 1942.ttf don't support it)
         SDL_Surface* textSurface = TTF_RenderText_Blended(ttfFont, text.c_str(), 0, textColor);
         if (!textSurface) {
-            SDL_DestroySurface(outlineSurface);
+            std::cerr << "TextCache: text surface failed for '" << text << "': " << SDL_GetError() << std::endl;
             return {};
         }
 
-        // Composite: blit text onto outline surface
-        SDL_Rect destRect;
-        destRect.x = outlineSize;
-        destRect.y = outlineSize;
-        destRect.w = textSurface->w;
-        destRect.h = textSurface->h;
-        SDL_BlitSurface(textSurface, nullptr, outlineSurface, &destRect);
+        // Convert surface to RGBA format for OpenGL
+        SDL_Surface* rgbaSurface = SDL_ConvertSurface(textSurface, SDL_PIXELFORMAT_RGBA32);
         SDL_DestroySurface(textSurface);
 
-        // Convert surface to RGBA format for OpenGL
-        SDL_Surface* rgbaSurface = SDL_ConvertSurface(outlineSurface, SDL_PIXELFORMAT_RGBA32);
-        SDL_DestroySurface(outlineSurface);
-
         if (!rgbaSurface) {
+            std::cerr << "TextCache: RGBA convert failed for '" << text << "': " << SDL_GetError() << std::endl;
             return {};
         }
 

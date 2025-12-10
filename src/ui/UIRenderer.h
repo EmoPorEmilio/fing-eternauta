@@ -92,8 +92,20 @@ public:
             anchorPos.y * m_screenHeight
         );
 
-        // Apply offset
-        glm::vec2 pos = screenAnchor + uiText.offset;
+        // Apply offset - Y needs to be inverted for top anchors
+        // (OpenGL has Y=0 at bottom, but UI typically expects Y offset to go down from top)
+        glm::vec2 pos = screenAnchor;
+        pos.x += uiText.offset.x;
+
+        // For top anchors, subtract Y offset (going down from top)
+        // For bottom anchors, add Y offset (going up from bottom)
+        // For center, subtract (treat like top-down UI convention)
+        if (anchorPos.y >= 0.5f) {
+            pos.y -= uiText.offset.y;  // Top or center: offset goes down
+            pos.y -= texture.height;    // Also account for text height (anchor at top of text)
+        } else {
+            pos.y += uiText.offset.y;  // Bottom: offset goes up
+        }
 
         // Adjust for horizontal alignment
         switch (uiText.horizontalAlign) {

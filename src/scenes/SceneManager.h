@@ -2,6 +2,8 @@
 
 enum class SceneType {
     MainMenu,
+    IntroText,       // Typewriter text intro
+    IntroCinematic,  // Camera path before gameplay starts
     PlayGame,
     GodMode,
     PauseMenu

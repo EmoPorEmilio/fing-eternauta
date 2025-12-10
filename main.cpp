@@ -21,6 +21,7 @@
 #include "src/ecs/systems/FreeCameraSystem.h"
 #include "src/ecs/systems/UISystem.h"
 #include "src/ecs/systems/MinimapSystem.h"
+#include "src/ecs/systems/CinematicSystem.h"
 #include "src/assets/AssetLoader.h"
 #include "src/DebugRenderer.h"
 #include "src/Shader.h"
@@ -110,6 +111,8 @@ int main(int argc, char* argv[]) {
     MinimapSystem minimapSystem;
     minimapSystem.init();
 
+    CinematicSystem cinematicSystem;
+
     // Load UI fonts
     if (!uiSystem.fonts().loadFont("oxanium", "assets/fonts/Oxanium.ttf", 28)) {
         std::cerr << "Failed to load Oxanium font" << std::endl;
@@ -120,6 +123,27 @@ int main(int argc, char* argv[]) {
     if (!uiSystem.fonts().loadFont("oxanium_small", "assets/fonts/Oxanium.ttf", 17)) {
         std::cerr << "Failed to load Oxanium small font" << std::endl;
     }
+    // 1942 font - load many sizes for testing
+    uiSystem.fonts().loadFont("1942_12", "assets/fonts/1942.ttf", 12);
+    uiSystem.fonts().loadFont("1942_14", "assets/fonts/1942.ttf", 14);
+    uiSystem.fonts().loadFont("1942_16", "assets/fonts/1942.ttf", 16);
+    uiSystem.fonts().loadFont("1942_18", "assets/fonts/1942.ttf", 18);
+    uiSystem.fonts().loadFont("1942_20", "assets/fonts/1942.ttf", 20);
+    uiSystem.fonts().loadFont("1942_22", "assets/fonts/1942.ttf", 22);
+    uiSystem.fonts().loadFont("1942_24", "assets/fonts/1942.ttf", 24);
+    uiSystem.fonts().loadFont("1942_28", "assets/fonts/1942.ttf", 28);
+    uiSystem.fonts().loadFont("1942_32", "assets/fonts/1942.ttf", 32);
+    uiSystem.fonts().loadFont("1942_36", "assets/fonts/1942.ttf", 36);
+    uiSystem.fonts().loadFont("1942_48", "assets/fonts/1942.ttf", 48);
+    // Oxanium extra sizes
+    uiSystem.fonts().loadFont("oxanium_12", "assets/fonts/Oxanium.ttf", 12);
+    uiSystem.fonts().loadFont("oxanium_14", "assets/fonts/Oxanium.ttf", 14);
+    uiSystem.fonts().loadFont("oxanium_16", "assets/fonts/Oxanium.ttf", 16);
+    uiSystem.fonts().loadFont("oxanium_18", "assets/fonts/Oxanium.ttf", 18);
+    uiSystem.fonts().loadFont("oxanium_20", "assets/fonts/Oxanium.ttf", 20);
+    uiSystem.fonts().loadFont("oxanium_22", "assets/fonts/Oxanium.ttf", 22);
+    uiSystem.fonts().loadFont("oxanium_24", "assets/fonts/Oxanium.ttf", 24);
+    uiSystem.fonts().loadFont("oxanium_32", "assets/fonts/Oxanium.ttf", 32);
 
     inputSystem.setWindow(window);
 
@@ -332,6 +356,52 @@ int main(int argc, char* argv[]) {
     followTarget.target = protagonist;
     registry.addFollowTarget(camera, followTarget);
 
+    // Set up intro cinematic camera path
+    // Path: Start behind/side, sweep around to the normal follow position
+    // Calculate the actual follow camera end position and look-at based on FollowTarget defaults
+    glm::vec3 followCamEndPos;
+    glm::vec3 followCamLookAt;
+    {
+        // Character starts at origin facing forward (yaw = 0)
+        float yaw = 0.0f;
+        float yawRad = glm::radians(yaw);
+        float pitchRad = glm::radians(followTarget.pitch);
+
+        glm::vec3 forward(-sin(yawRad), 0.0f, -cos(yawRad));  // (0, 0, -1)
+        glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));  // (1, 0, 0)
+
+        float verticalOffset = followTarget.height - sin(pitchRad) * followTarget.distance * 0.5f;
+        float horizontalDistance = followTarget.distance * cos(pitchRad * 0.5f);
+
+        // Camera positioned behind and to the right (over shoulder)
+        glm::vec3 characterPos(0.0f, 0.0f, 0.0f);
+        followCamEndPos = characterPos - forward * horizontalDistance + right * followTarget.shoulderOffset;
+        followCamEndPos.y += verticalOffset;
+
+        // Look-at point: ahead of character at eye level (same as FollowCameraSystem::getLookAtPosition)
+        followCamLookAt = characterPos + forward * followTarget.lookAhead;
+        followCamLookAt.y += 1.0f;  // Eye level
+    }
+
+    {
+        NurbsCurve introPath;
+        // Control points for a smooth arc around the character
+        glm::vec3 camStart(-6.0f, 3.0f, -4.0f);  // Start: front-left, looking at character's face
+        introPath.addControlPoint(camStart);
+        introPath.addControlPoint(glm::vec3(-3.0f, 2.0f, 0.0f));   // Sweep to left side
+        introPath.addControlPoint(glm::vec3(1.0f, 1.5f, 1.5f));    // Moving toward final position
+        introPath.addControlPoint(followCamEndPos);                 // End: exact follow camera position
+
+        cinematicSystem.setCameraPath(introPath);
+        cinematicSystem.setLookAtTarget(protagonist);
+        cinematicSystem.setFinalLookAt(followCamLookAt);  // Blend to gameplay look-at at end
+        cinematicSystem.setDuration(3.0f);  // 3 seconds
+
+        // Character stays facing forward (yaw=0) the whole time - camera sweeps around them
+        cinematicSystem.setCharacterEntity(protagonist);
+        cinematicSystem.setCharacterYaw(0.0f, 0.0f);  // Always facing forward
+    }
+
     // Menu UI entities
     Entity menuOption1 = registry.create();
     UIText menuText1;
@@ -456,6 +526,108 @@ int main(int argc, char* argv[]) {
     pauseMenuText.visible = false;
     registry.addUIText(pauseMenuOption, pauseMenuText);
 
+    // Intro text scene - 1942 font with typewriter effect
+    std::vector<Entity> introTextEntities;
+    const glm::vec4 introTextColor(255.0f, 255.0f, 255.0f, 255.0f);  // White
+
+    // Header: positioned on the right side (but left-aligned so it doesn't shift)
+    Entity introHeader = registry.create();
+    UIText introHeaderText;
+    introHeaderText.text = "";
+    introHeaderText.fontId = "1942_32";
+    introHeaderText.fontSize = 32;
+    introHeaderText.anchor = AnchorPoint::TopLeft;
+    introHeaderText.offset = glm::vec2(350.0f, 50.0f);  // Right side position
+    introHeaderText.horizontalAlign = HorizontalAlign::Left;
+    introHeaderText.color = introTextColor;
+    introHeaderText.visible = false;
+    registry.addUIText(introHeader, introHeaderText);
+    introTextEntities.push_back(introHeader);
+
+    // Body paragraphs: left-aligned story text
+    Entity introBody1 = registry.create();
+    UIText introBody1Text;
+    introBody1Text.text = "";
+    introBody1Text.fontId = "1942_48";
+    introBody1Text.fontSize = 48;
+    introBody1Text.anchor = AnchorPoint::TopLeft;
+    introBody1Text.offset = glm::vec2(50.0f, 150.0f);
+    introBody1Text.horizontalAlign = HorizontalAlign::Left;
+    introBody1Text.color = introTextColor;
+    introBody1Text.visible = false;
+    registry.addUIText(introBody1, introBody1Text);
+    introTextEntities.push_back(introBody1);
+
+    Entity introBody2 = registry.create();
+    UIText introBody2Text;
+    introBody2Text.text = "";
+    introBody2Text.fontId = "1942_48";
+    introBody2Text.fontSize = 48;
+    introBody2Text.anchor = AnchorPoint::TopLeft;
+    introBody2Text.offset = glm::vec2(50.0f, 250.0f);
+    introBody2Text.horizontalAlign = HorizontalAlign::Left;
+    introBody2Text.color = introTextColor;
+    introBody2Text.visible = false;
+    registry.addUIText(introBody2, introBody2Text);
+    introTextEntities.push_back(introBody2);
+
+    Entity introBody3 = registry.create();
+    UIText introBody3Text;
+    introBody3Text.text = "";
+    introBody3Text.fontId = "1942_48";
+    introBody3Text.fontSize = 48;
+    introBody3Text.anchor = AnchorPoint::TopLeft;
+    introBody3Text.offset = glm::vec2(50.0f, 350.0f);
+    introBody3Text.horizontalAlign = HorizontalAlign::Left;
+    introBody3Text.color = introTextColor;
+    introBody3Text.visible = false;
+    registry.addUIText(introBody3, introBody3Text);
+    introTextEntities.push_back(introBody3);
+
+    Entity introBody4 = registry.create();
+    UIText introBody4Text;
+    introBody4Text.text = "";
+    introBody4Text.fontId = "1942_48";
+    introBody4Text.fontSize = 48;
+    introBody4Text.anchor = AnchorPoint::TopLeft;
+    introBody4Text.offset = glm::vec2(50.0f, 450.0f);
+    introBody4Text.horizontalAlign = HorizontalAlign::Left;
+    introBody4Text.color = introTextColor;
+    introBody4Text.visible = false;
+    registry.addUIText(introBody4, introBody4Text);
+    introTextEntities.push_back(introBody4);
+
+    Entity introBody5 = registry.create();
+    UIText introBody5Text;
+    introBody5Text.text = "";
+    introBody5Text.fontId = "1942_48";
+    introBody5Text.fontSize = 48;
+    introBody5Text.anchor = AnchorPoint::TopLeft;
+    introBody5Text.offset = glm::vec2(50.0f, 550.0f);
+    introBody5Text.horizontalAlign = HorizontalAlign::Left;
+    introBody5Text.color = introTextColor;
+    introBody5Text.visible = false;
+    registry.addUIText(introBody5, introBody5Text);
+    introTextEntities.push_back(introBody5);
+
+    // Intro text content for typewriter effect
+    const std::vector<std::string> introTexts = {
+        "Montevideo, Uruguay, 2025",
+        "Seven days have passed since the deadly",
+        "snow started falling.",
+        "Find us at FING.",
+        "Hurry.",
+        "They are coming."
+    };
+    int introCurrentLine = 0;
+    size_t introCurrentChar = 0;
+    float introTypewriterTimer = 0.0f;
+    const float introCharDelay = 0.08f;
+    const float introLineDelay = 0.5f;
+    float introLinePauseTimer = 0.0f;
+    bool introLineComplete = false;
+    bool introAllComplete = false;
+
     // Ground plane shader (uses model shader)
     Shader groundShader;
     groundShader.loadFromFiles("shaders/model.vert", "shaders/model.frag");
@@ -552,9 +724,9 @@ int main(int argc, char* argv[]) {
     // Game settings
     bool fogEnabled = false;
     bool snowEnabled = true;
-    float snowSpeed = 5.0f;
-    float snowAngle = 40.0f;
-    float snowMotionBlur = 0.0f;  // 0.0 = no blur, higher = more trail
+    float snowSpeed = 7.0f;
+    float snowAngle = 20.0f;
+    float snowMotionBlur = 3.0f;  // 0.0 = no blur, higher = more trail
     const int PAUSE_MENU_ITEMS = 6;  // Fog, Snow, Snow Speed, Snow Angle, Snow Blur, Back
 
     // Game loop
@@ -584,6 +756,11 @@ int main(int argc, char* argv[]) {
             registry.getUIText(pauseSnowAngle)->visible = false;
             registry.getUIText(pauseSnowBlur)->visible = false;
             registry.getUIText(pauseMenuOption)->visible = false;
+            // Hide all intro text entities
+            for (auto& entity : introTextEntities) {
+                auto* text = registry.getUIText(entity);
+                if (text) text->visible = false;
+            }
 
             if (scene == SceneType::MainMenu) {
                 inputSystem.captureMouse(false);
@@ -591,19 +768,57 @@ int main(int argc, char* argv[]) {
                 registry.getUIText(menuOption2)->visible = true;
                 uiSystem.clearCache();  // Clear cache to update colors
             }
+            else if (scene == SceneType::IntroText) {
+                inputSystem.captureMouse(false);
+                // FONT TEST: Just show all pre-set text (no typewriter)
+                std::cout << "=== ENTERING INTRO TEXT SCENE ===" << std::endl;
+                std::cout << "Total intro entities: " << introTextEntities.size() << std::endl;
+                int idx = 0;
+                for (auto& entity : introTextEntities) {
+                    auto* text = registry.getUIText(entity);
+                    if (text) {
+                        text->visible = true;
+                        std::cout << idx << ": '" << text->text << "' font=" << text->fontId << " size=" << text->fontSize << std::endl;
+                    } else {
+                        std::cout << idx << ": NULL TEXT!" << std::endl;
+                    }
+                    idx++;
+                }
+                uiSystem.clearCache();
+            }
+            else if (scene == SceneType::IntroCinematic) {
+                inputSystem.captureMouse(false);  // No mouse control during cinematic
+
+                // Reset protagonist position
+                auto* pt = registry.getTransform(protagonist);
+                if (pt) {
+                    pt->position = glm::vec3(0.0f, 0.0f, 0.0f);
+                }
+                // Character facing is set by cinematicSystem.start() - starts facing camera
+
+                // Start the cinematic
+                cinematicSystem.start(registry);
+            }
             else if (scene == SceneType::PlayGame) {
                 inputSystem.captureMouse(true);
                 registry.getUIText(sprintHint)->visible = true;
 
-                // Only reset protagonist position when coming from main menu
+                // Only reset protagonist position when coming from main menu (not from cinematic)
                 if (sceneManager.previous() == SceneType::MainMenu) {
                     auto* pt = registry.getTransform(protagonist);
                     if (pt) {
-                        pt->position = glm::vec3(0.0f, 0.25f, 0.0f);
+                        pt->position = glm::vec3(0.0f, 0.0f, 0.0f);
                     }
                     auto* pf = registry.getFacingDirection(protagonist);
                     if (pf) {
                         pf->yaw = 0.0f;
+                    }
+                }
+                // Coming from cinematic - position already set, just ensure camera is at final position
+                if (sceneManager.previous() == SceneType::IntroCinematic) {
+                    auto* ct = registry.getTransform(camera);
+                    if (ct) {
+                        ct->position = cinematicSystem.getFinalPosition();
                     }
                 }
             }
@@ -658,7 +873,7 @@ int main(int argc, char* argv[]) {
 
             if (input.enterPressed) {
                 if (menuSelection == 0) {
-                    sceneManager.switchTo(SceneType::PlayGame);
+                    sceneManager.switchTo(SceneType::IntroText);
                 } else {
                     sceneManager.switchTo(SceneType::GodMode);
                 }
@@ -670,6 +885,212 @@ int main(int argc, char* argv[]) {
 
             // Only render UI
             uiSystem.update(registry, WINDOW_WIDTH, WINDOW_HEIGHT);
+        }
+        else if (currentScene == SceneType::IntroText) {
+            // Skip intro with Enter or Escape
+            if (input.enterPressed || input.escapePressed) {
+                sceneManager.switchTo(SceneType::IntroCinematic);
+            }
+
+            // Typewriter effect update
+            if (!introAllComplete) {
+                if (introLineComplete) {
+                    // Waiting between lines
+                    introLinePauseTimer += dt;
+                    if (introLinePauseTimer >= introLineDelay) {
+                        introLinePauseTimer = 0.0f;
+                        introLineComplete = false;
+                        introCurrentLine++;
+                        introCurrentChar = 0;
+                        if (introCurrentLine >= (int)introTexts.size()) {
+                            introAllComplete = true;
+                        }
+                    }
+                } else if (introCurrentLine < (int)introTexts.size()) {
+                    // Typing characters
+                    introTypewriterTimer += dt;
+                    while (introTypewriterTimer >= introCharDelay && introCurrentChar < introTexts[introCurrentLine].length()) {
+                        introTypewriterTimer -= introCharDelay;
+                        introCurrentChar++;
+                        // Update the text entity
+                        auto* text = registry.getUIText(introTextEntities[introCurrentLine]);
+                        if (text) {
+                            text->text = introTexts[introCurrentLine].substr(0, introCurrentChar);
+                            uiSystem.clearCache();
+                        }
+                    }
+                    // Check if line is complete
+                    if (introCurrentChar >= introTexts[introCurrentLine].length()) {
+                        introLineComplete = true;
+                        introLinePauseTimer = 0.0f;
+                    }
+                }
+            } else {
+                // All text complete, wait a moment then transition
+                introLinePauseTimer += dt;
+                if (introLinePauseTimer >= 2.0f) {  // 2 second pause after all text
+                    sceneManager.switchTo(SceneType::IntroCinematic);
+                }
+            }
+
+            // Clear with black for intro text
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            // Only render UI
+            uiSystem.update(registry, WINDOW_WIDTH, WINDOW_HEIGHT);
+        }
+        else if (currentScene == SceneType::IntroCinematic) {
+            // Skip cinematic with Enter or Escape
+            if (input.enterPressed || input.escapePressed) {
+                cinematicSystem.stop(registry);
+                sceneManager.switchTo(SceneType::PlayGame);
+            }
+
+            // Update cinematic - when complete, switch to gameplay
+            if (!cinematicSystem.update(registry, dt)) {
+                if (cinematicSystem.isComplete()) {
+                    sceneManager.switchTo(SceneType::PlayGame);
+                }
+            }
+
+            // Still update animations for visual effect
+            animationSystem.update(registry, dt);
+            skeletonSystem.update(registry);
+
+            // Update building culling for cinematic (character at origin)
+            auto* protagonistT = registry.getTransform(protagonist);
+            if (protagonistT) {
+                auto [playerGridX, playerGridZ] = BuildingGenerator::getPlayerGridCell(protagonistT->position);
+
+                if (playerGridX != lastPlayerGridX || playerGridZ != lastPlayerGridZ) {
+                    lastPlayerGridX = playerGridX;
+                    lastPlayerGridZ = playerGridZ;
+
+                    std::vector<const BuildingGenerator::BuildingData*> visibleBuildings;
+                    for (const auto& bldg : buildingDataList) {
+                        if (BuildingGenerator::isBuildingInRange(bldg, playerGridX, playerGridZ, BUILDING_RENDER_RADIUS)) {
+                            visibleBuildings.push_back(&bldg);
+                        }
+                    }
+
+                    size_t entityIdx = 0;
+                    for (const auto* bldg : visibleBuildings) {
+                        if (entityIdx >= buildingEntityPool.size()) break;
+                        auto* transform = registry.getTransform(buildingEntityPool[entityIdx]);
+                        if (transform) {
+                            transform->position = bldg->position;
+                            transform->scale = glm::vec3(bldg->width, bldg->height, bldg->depth);
+                        }
+                        ++entityIdx;
+                    }
+                    for (; entityIdx < buildingEntityPool.size(); ++entityIdx) {
+                        auto* transform = registry.getTransform(buildingEntityPool[entityIdx]);
+                        if (transform) {
+                            transform->position.y = -1000.0f;
+                        }
+                    }
+                }
+            }
+
+            // Get cinematic view matrix
+            auto* cam = registry.getCamera(camera);
+            auto* camT = registry.getTransform(camera);
+            glm::mat4 cinematicView = cinematicSystem.getViewMatrix(registry);
+            glm::mat4 projection = cam ? cam->projectionMatrix(aspectRatio) : glm::mat4(1.0f);
+
+            // === SHADOW PASS (cinematic) ===
+            float orthoSize = 100.0f;
+            glm::vec3 lightPos = (protagonistT ? protagonistT->position : glm::vec3(0.0f)) + lightDir * 80.0f;
+            glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, 200.0f);
+            glm::mat4 lightView = glm::lookAt(lightPos, protagonistT ? protagonistT->position : glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            glm::mat4 lightSpaceMatrix = lightProjection * lightView;
+
+            glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+            glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+            glClear(GL_DEPTH_BUFFER_BIT);
+
+            depthShader.use();
+            depthShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
+
+            // Render buildings to shadow map
+            for (Entity e : buildingEntityPool) {
+                auto* t = registry.getTransform(e);
+                if (t && t->position.y > -100.0f) {
+                    depthShader.setMat4("uModel", t->matrix());
+                    auto* mg = registry.getMeshGroup(e);
+                    if (mg) {
+                        for (const auto& mesh : mg->meshes) {
+                            glBindVertexArray(mesh.vao);
+                            glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
+                        }
+                    }
+                }
+            }
+
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+
+            // === RENDER CINEMATIC SCENE ===
+            glClearColor(0.53f, 0.81f, 0.92f, 1.0f);  // Sky blue
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            // Draw debug axes
+            if (cam && camT) {
+                glm::mat4 vp = projection * cinematicView;
+                colorShader.use();
+                colorShader.setMat4("uMVP", vp);
+                axes.draw();
+            }
+
+            // Render scene with cinematic view and shadows
+            renderSystem.setFogEnabled(fogEnabled);
+            renderSystem.setShadowsEnabled(true);
+            renderSystem.setShadowMap(shadowDepthTexture);
+            renderSystem.setLightSpaceMatrix(lightSpaceMatrix);
+            renderSystem.updateWithView(registry, aspectRatio, cinematicView);
+
+            // Render ground plane with shadows
+            groundShader.use();
+            groundShader.setMat4("uView", cinematicView);
+            groundShader.setMat4("uProjection", projection);
+            groundShader.setMat4("uModel", glm::mat4(1.0f));
+            groundShader.setVec3("uLightDir", lightDir);
+            groundShader.setVec3("uViewPos", cinematicSystem.getCurrentCameraPosition());
+            groundShader.setInt("uHasTexture", 1);
+            groundShader.setInt("uFogEnabled", fogEnabled ? 1 : 0);
+            groundShader.setInt("uShadowsEnabled", 1);
+            groundShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, snowTexture);
+            groundShader.setInt("uTexture", 0);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
+            groundShader.setInt("uShadowMap", 1);
+            glBindVertexArray(planeVAO);
+            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
+            glBindVertexArray(0);
+
+            // Render snow overlay
+            if (snowEnabled) {
+                glDisable(GL_DEPTH_TEST);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                overlayShader.use();
+                overlayShader.setVec3("iResolution", glm::vec3((float)WINDOW_WIDTH, (float)WINDOW_HEIGHT, 1.0f));
+                overlayShader.setFloat("iTime", gameTime);
+                overlayShader.setFloat("uSnowSpeed", snowSpeed);
+                overlayShader.setFloat("uSnowDirectionDeg", snowAngle);
+                overlayShader.setFloat("uMotionBlur", snowMotionBlur);
+
+                glBindVertexArray(overlayVAO);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                glBindVertexArray(0);
+
+                glDisable(GL_BLEND);
+                glEnable(GL_DEPTH_TEST);
+            }
         }
         else if (currentScene == SceneType::PlayGame) {
             // Open pause menu on escape

@@ -48,7 +48,10 @@ public:
 
             // Get or load font
             Font* font = m_fontManager.getFont(uiText->fontId, uiText->fontSize);
-            if (!font) continue;
+            if (!font) {
+                std::cerr << "UISystem: Font not found: " << uiText->fontId << "@" << uiText->fontSize << " for text: " << uiText->text << std::endl;
+                continue;
+            }
 
             // Render text to texture (cached)
             TextStyle style;
