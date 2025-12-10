@@ -103,6 +103,16 @@ public:
                     glBindTexture(GL_TEXTURE_2D, mesh.texture);
                 }
 
+                // Bind normal map to texture unit 2
+                if (mesh.normalMap) {
+                    glActiveTexture(GL_TEXTURE2);
+                    glBindTexture(GL_TEXTURE_2D, mesh.normalMap);
+                    shader->setInt("uNormalMap", 2);
+                    shader->setInt("uHasNormalMap", 1);
+                } else {
+                    shader->setInt("uHasNormalMap", 0);
+                }
+
                 glBindVertexArray(mesh.vao);
                 glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
             }
@@ -176,6 +186,16 @@ public:
                 if (mesh.texture) {
                     glActiveTexture(GL_TEXTURE0);
                     glBindTexture(GL_TEXTURE_2D, mesh.texture);
+                }
+
+                // Bind normal map to texture unit 2
+                if (mesh.normalMap) {
+                    glActiveTexture(GL_TEXTURE2);
+                    glBindTexture(GL_TEXTURE_2D, mesh.normalMap);
+                    shader->setInt("uNormalMap", 2);
+                    shader->setInt("uHasNormalMap", 1);
+                } else {
+                    shader->setInt("uHasNormalMap", 0);
                 }
 
                 glBindVertexArray(mesh.vao);

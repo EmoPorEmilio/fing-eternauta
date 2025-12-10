@@ -16,6 +16,7 @@ struct Mesh {
     GLenum indexType = GL_UNSIGNED_SHORT;
     bool hasSkinning = false;
     GLuint texture = 0;
+    GLuint normalMap = 0;  // Normal map texture
 
     // CPU-side vertex data for skinning calculations
     std::vector<SkinnedVertex> skinnedVertices;

@@ -231,10 +231,33 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Load brick normal map
+    GLuint brickNormalMap = 0;
+    {
+        int width, height, channels;
+        unsigned char* data = stbi_load("assets/textures/brick/brick_wall_006_nor_gl_1k.jpg", &width, &height, &channels, 0);
+        if (data) {
+            glGenTextures(1, &brickNormalMap);
+            glBindTexture(GL_TEXTURE_2D, brickNormalMap);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            GLenum format = (channels == 4) ? GL_RGBA : GL_RGB;
+            glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+            glGenerateMipmap(GL_TEXTURE_2D);
+            stbi_image_free(data);
+            std::cout << "Loaded brick normal map: assets/textures/brick/brick_wall_006_nor_gl_1k.jpg (" << width << "x" << height << ")" << std::endl;
+        } else {
+            std::cerr << "Failed to load brick normal map: assets/textures/brick/brick_wall_006_nor_gl_1k.jpg" << std::endl;
+        }
+    }
+
     // Generate procedural buildings data (100x100 grid = 10,000 buildings)
     std::vector<BuildingGenerator::BuildingData> buildingDataList = BuildingGenerator::generateBuildingGrid(12345);
     Mesh buildingBoxMesh = BuildingGenerator::createUnitBoxMesh();  // Shared mesh for all buildings
     buildingBoxMesh.texture = brickTexture;  // Apply brick texture to buildings
+    buildingBoxMesh.normalMap = brickNormalMap;  // Apply brick normal map
     std::cout << "Generated building data for " << buildingDataList.size() << " buildings" << std::endl;
 
     // Culling parameters: only render buildings within this radius of player's grid cell

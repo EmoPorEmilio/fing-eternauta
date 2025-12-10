@@ -6,10 +6,12 @@ in vec4 vFragPosLightSpace;
 in vec3 vWorldNormal;
 
 uniform sampler2D uTexture;
+uniform sampler2D uNormalMap;
 uniform sampler2D uShadowMap;
 uniform vec3 uLightDir;
 uniform vec3 uViewPos;
 uniform int uHasTexture;
+uniform int uHasNormalMap;
 uniform int uFogEnabled;
 uniform int uShadowsEnabled;
 uniform int uTriplanarMapping;  // Use world-space UV projection
@@ -80,10 +82,98 @@ float calculateShadow(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir)
     return shadow;
 }
 
+// Perturb normal using normal map sample (tangent space to world space for triplanar)
+vec3 perturbNormalTriplanar(vec3 normalSample, vec3 surfaceNormal, vec3 blendWeights)
+{
+    // Convert from [0,1] to [-1,1]
+    vec3 tangentNormal = normalSample * 2.0 - 1.0;
+
+    // For triplanar, we blend the normal perturbations based on the dominant axis
+    // This is a simplified approach - proper triplanar normals would need full TBN per axis
+    vec3 absNormal = abs(surfaceNormal);
+
+    vec3 perturbedNormal = surfaceNormal;
+
+    // Apply perturbation based on which axis dominates
+    if (absNormal.x > absNormal.y && absNormal.x > absNormal.z) {
+        // X-dominant face (left/right walls)
+        perturbedNormal = normalize(vec3(
+            surfaceNormal.x,
+            surfaceNormal.y + tangentNormal.y * 0.5,
+            surfaceNormal.z + tangentNormal.x * 0.5 * sign(surfaceNormal.x)
+        ));
+    } else if (absNormal.y > absNormal.z) {
+        // Y-dominant face (top/bottom)
+        perturbedNormal = normalize(vec3(
+            surfaceNormal.x + tangentNormal.x * 0.5,
+            surfaceNormal.y,
+            surfaceNormal.z + tangentNormal.y * 0.5
+        ));
+    } else {
+        // Z-dominant face (front/back walls)
+        perturbedNormal = normalize(vec3(
+            surfaceNormal.x + tangentNormal.x * 0.5 * sign(surfaceNormal.z),
+            surfaceNormal.y + tangentNormal.y * 0.5,
+            surfaceNormal.z
+        ));
+    }
+
+    return perturbedNormal;
+}
+
 void main()
 {
     vec3 normal = normalize(vNormal);
     vec3 lightDir = normalize(uLightDir);
+
+    vec3 color = vec3(1.0);
+    float scale = uTextureScale > 0.0 ? uTextureScale : 4.0;
+
+    // Sample textures and normal map with triplanar or regular UV
+    if (uHasTexture == 1)
+    {
+        if (uTriplanarMapping == 1)
+        {
+            // Calculate blend weights based on normal direction
+            vec3 blendWeights = abs(vWorldNormal);
+            blendWeights = blendWeights / (blendWeights.x + blendWeights.y + blendWeights.z);
+
+            // Sample diffuse texture from each axis projection
+            vec3 xProjection = texture(uTexture, vFragPos.zy / scale).rgb;
+            vec3 yProjection = texture(uTexture, vFragPos.xz / scale).rgb;
+            vec3 zProjection = texture(uTexture, vFragPos.xy / scale).rgb;
+
+            color = xProjection * blendWeights.x +
+                    yProjection * blendWeights.y +
+                    zProjection * blendWeights.z;
+
+            // Sample and apply normal map if available
+            if (uHasNormalMap == 1)
+            {
+                vec3 xNormal = texture(uNormalMap, vFragPos.zy / scale).rgb;
+                vec3 yNormal = texture(uNormalMap, vFragPos.xz / scale).rgb;
+                vec3 zNormal = texture(uNormalMap, vFragPos.xy / scale).rgb;
+
+                vec3 blendedNormalSample = xNormal * blendWeights.x +
+                                           yNormal * blendWeights.y +
+                                           zNormal * blendWeights.z;
+
+                normal = perturbNormalTriplanar(blendedNormalSample, normal, blendWeights);
+            }
+        }
+        else
+        {
+            color = texture(uTexture, vTexCoord).rgb;
+
+            if (uHasNormalMap == 1)
+            {
+                vec3 normalSample = texture(uNormalMap, vTexCoord).rgb;
+                vec3 tangentNormal = normalSample * 2.0 - 1.0;
+                // Simple normal perturbation for non-triplanar (assumes roughly axis-aligned surfaces)
+                normal = normalize(normal + vec3(tangentNormal.x, tangentNormal.y, 0.0) * 0.5);
+            }
+        }
+    }
 
     float ambient = 0.3;
     float diff = max(dot(normal, lightDir), 0.0);
@@ -96,38 +186,6 @@ void main()
 
     // Shadow reduces diffuse lighting, ambient stays constant
     float light = ambient + diff * 0.7 * (1.0 - shadow);
-
-    vec3 color;
-    if (uHasTexture == 1)
-    {
-        if (uTriplanarMapping == 1)
-        {
-            // Triplanar mapping: project texture based on world position and normal
-            float scale = uTextureScale > 0.0 ? uTextureScale : 4.0;  // Default 4 units per repeat
-
-            // Calculate blend weights based on normal direction
-            vec3 blendWeights = abs(vWorldNormal);
-            blendWeights = blendWeights / (blendWeights.x + blendWeights.y + blendWeights.z);
-
-            // Sample texture from each axis projection
-            vec3 xProjection = texture(uTexture, vFragPos.zy / scale).rgb;  // Project along X
-            vec3 yProjection = texture(uTexture, vFragPos.xz / scale).rgb;  // Project along Y (top/bottom)
-            vec3 zProjection = texture(uTexture, vFragPos.xy / scale).rgb;  // Project along Z
-
-            // Blend based on normal direction
-            color = xProjection * blendWeights.x +
-                    yProjection * blendWeights.y +
-                    zProjection * blendWeights.z;
-        }
-        else
-        {
-            color = texture(uTexture, vTexCoord).rgb;
-        }
-    }
-    else
-    {
-        color = vec3(1.0, 1.0, 1.0);
-    }
 
     vec3 litColor = color * light;
 
