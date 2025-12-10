@@ -16,6 +16,7 @@ out vec3 vNormal;
 out vec2 vTexCoord;
 out vec3 vFragPos;
 out vec4 vFragPosLightSpace;
+out vec3 vWorldNormal;  // For triplanar mapping (not used for skinned, but needed for shared frag shader)
 
 void main()
 {
@@ -43,6 +44,7 @@ void main()
     vFragPos = worldPos.xyz;
     vFragPosLightSpace = uLightSpaceMatrix * worldPos;
     vNormal = mat3(transpose(inverse(uModel))) * skinnedNormal;
+    vWorldNormal = normalize(vNormal);  // For shared fragment shader compatibility
     vTexCoord = aTexCoord;
     gl_Position = uProjection * uView * worldPos;
 }

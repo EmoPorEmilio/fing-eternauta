@@ -178,13 +178,14 @@ private:
     bool m_isPlaying = false;
     bool m_isComplete = false;
 
-    // Cubic ease in-out for smooth acceleration/deceleration
+    // Septic ease in-out for extreme acceleration/deceleration and very fast peak speed
     static float easeInOutCubic(float t) {
+        // Using septic (power of 7) for very dramatic acceleration/deceleration
         if (t < 0.5f) {
-            return 4.0f * t * t * t;
+            return 64.0f * t * t * t * t * t * t * t;
         } else {
             float f = 2.0f * t - 2.0f;
-            return 0.5f * f * f * f + 1.0f;
+            return 0.5f * f * f * f * f * f * f * f + 1.0f;
         }
     }
 

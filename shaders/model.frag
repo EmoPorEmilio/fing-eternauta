@@ -3,6 +3,7 @@ in vec3 vNormal;
 in vec2 vTexCoord;
 in vec3 vFragPos;
 in vec4 vFragPosLightSpace;
+in vec3 vWorldNormal;
 
 uniform sampler2D uTexture;
 uniform sampler2D uShadowMap;
@@ -11,10 +12,12 @@ uniform vec3 uViewPos;
 uniform int uHasTexture;
 uniform int uFogEnabled;
 uniform int uShadowsEnabled;
+uniform int uTriplanarMapping;  // Use world-space UV projection
+uniform float uTextureScale;    // How many world units per texture repeat (default 4.0)
 
 // Fog parameters
-const vec3 fogColor = vec3(0.53, 0.81, 0.92);  // Sky blue - match background
-const float fogDensity = 0.02;  // Much less dense
+const vec3 fogColor = vec3(0.5, 0.5, 0.55);  // Gray - match snowy atmosphere
+const float fogDensity = 0.02;
 const float fogDesaturation = 0.8;  // How much to desaturate at max fog
 
 out vec4 FragColor;
@@ -97,7 +100,29 @@ void main()
     vec3 color;
     if (uHasTexture == 1)
     {
-        color = texture(uTexture, vTexCoord).rgb;
+        if (uTriplanarMapping == 1)
+        {
+            // Triplanar mapping: project texture based on world position and normal
+            float scale = uTextureScale > 0.0 ? uTextureScale : 4.0;  // Default 4 units per repeat
+
+            // Calculate blend weights based on normal direction
+            vec3 blendWeights = abs(vWorldNormal);
+            blendWeights = blendWeights / (blendWeights.x + blendWeights.y + blendWeights.z);
+
+            // Sample texture from each axis projection
+            vec3 xProjection = texture(uTexture, vFragPos.zy / scale).rgb;  // Project along X
+            vec3 yProjection = texture(uTexture, vFragPos.xz / scale).rgb;  // Project along Y (top/bottom)
+            vec3 zProjection = texture(uTexture, vFragPos.xy / scale).rgb;  // Project along Z
+
+            // Blend based on normal direction
+            color = xProjection * blendWeights.x +
+                    yProjection * blendWeights.y +
+                    zProjection * blendWeights.z;
+        }
+        else
+        {
+            color = texture(uTexture, vTexCoord).rgb;
+        }
     }
     else
     {

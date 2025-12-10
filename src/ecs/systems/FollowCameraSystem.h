@@ -12,28 +12,31 @@ public:
             auto* facing = registry.getFacingDirection(ft.target);
             if (!targetTransform || !facing) return;
 
-            // Forward and right directions based on target's facing yaw
-            float yawRad = glm::radians(facing->yaw);
-            float pitchRad = glm::radians(ft.pitch);
-
-            glm::vec3 forward(-sin(yawRad), 0.0f, -cos(yawRad));
-            glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
-
-            // Camera orbit position based on pitch
-            // Pitch > 0 = looking up = camera moves down and closer
-            // Pitch < 0 = looking down = camera moves up and farther
-            float verticalOffset = ft.height - sin(pitchRad) * ft.distance * 0.5f;
-            float horizontalDistance = ft.distance * cos(pitchRad * 0.5f);
-
-            // Camera positioned behind and to the right (over shoulder)
-            glm::vec3 camPos = targetTransform->position - forward * horizontalDistance + right * ft.shoulderOffset;
-            camPos.y += verticalOffset;
-
-            camTransform.position = camPos;
+            camTransform.position = getCameraPosition(targetTransform->position, ft, facing->yaw);
         });
     }
 
-    // Get look-at position for render system (now needs facing direction)
+    // Calculate camera position for a given target position, follow settings, and yaw
+    // This is the single source of truth for camera positioning
+    static glm::vec3 getCameraPosition(const glm::vec3& targetPos, const FollowTarget& ft, float yaw) {
+        float yawRad = glm::radians(yaw);
+        float pitchRad = glm::radians(ft.pitch);
+
+        glm::vec3 forward(-sin(yawRad), 0.0f, -cos(yawRad));
+        glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+
+        // Camera orbit position based on pitch
+        float verticalOffset = ft.height - sin(pitchRad) * ft.distance * 0.5f;
+        float horizontalDistance = ft.distance * cos(pitchRad * 0.5f);
+
+        // Camera positioned behind and to the right (over shoulder)
+        glm::vec3 camPos = targetPos - forward * horizontalDistance + right * ft.shoulderOffset;
+        camPos.y += verticalOffset;
+
+        return camPos;
+    }
+
+    // Get look-at position for render system
     static glm::vec3 getLookAtPosition(const Transform& targetTransform, const FollowTarget& ft, float yaw) {
         float yawRad = glm::radians(yaw);
         glm::vec3 forward(-sin(yawRad), 0.0f, -cos(yawRad));

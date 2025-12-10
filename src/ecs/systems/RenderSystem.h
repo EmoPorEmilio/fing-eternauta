@@ -76,6 +76,8 @@ public:
                 shader->setInt("uFogEnabled", m_fogEnabled ? 1 : 0);
                 shader->setInt("uShadowsEnabled", m_shadowsEnabled ? 1 : 0);
                 shader->setMat4("uLightSpaceMatrix", m_lightSpaceMatrix);
+                shader->setInt("uTriplanarMapping", renderable.triplanarMapping ? 1 : 0);
+                shader->setFloat("uTextureScale", renderable.textureScale);
                 // Bind shadow map to texture unit 1
                 glActiveTexture(GL_TEXTURE1);
                 glBindTexture(GL_TEXTURE_2D, m_shadowMap);
@@ -149,6 +151,8 @@ public:
                 shader->setInt("uFogEnabled", m_fogEnabled ? 1 : 0);
                 shader->setInt("uShadowsEnabled", m_shadowsEnabled ? 1 : 0);
                 shader->setMat4("uLightSpaceMatrix", m_lightSpaceMatrix);
+                shader->setInt("uTriplanarMapping", renderable.triplanarMapping ? 1 : 0);
+                shader->setFloat("uTextureScale", renderable.textureScale);
                 // Bind shadow map to texture unit 1
                 glActiveTexture(GL_TEXTURE1);
                 glBindTexture(GL_TEXTURE_2D, m_shadowMap);

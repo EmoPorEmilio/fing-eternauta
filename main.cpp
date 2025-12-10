@@ -209,9 +209,32 @@ int main(int argc, char* argv[]) {
     const float lodSwitchDistance = 70.0f;  // Distance to switch between high/low detail
     bool fingUsingHighDetail = false;  // Track current LOD state
 
+    // Load brick texture for buildings (before building mesh creation)
+    GLuint brickTexture = 0;
+    {
+        int width, height, channels;
+        unsigned char* data = stbi_load("assets/textures/brick/brick_wall_006_diff_1k.jpg", &width, &height, &channels, 0);
+        if (data) {
+            glGenTextures(1, &brickTexture);
+            glBindTexture(GL_TEXTURE_2D, brickTexture);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            GLenum format = (channels == 4) ? GL_RGBA : GL_RGB;
+            glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+            glGenerateMipmap(GL_TEXTURE_2D);
+            stbi_image_free(data);
+            std::cout << "Loaded brick texture: assets/textures/brick/brick_wall_006_diff_1k.jpg (" << width << "x" << height << ")" << std::endl;
+        } else {
+            std::cerr << "Failed to load brick texture: assets/textures/brick/brick_wall_006_diff_1k.jpg" << std::endl;
+        }
+    }
+
     // Generate procedural buildings data (100x100 grid = 10,000 buildings)
     std::vector<BuildingGenerator::BuildingData> buildingDataList = BuildingGenerator::generateBuildingGrid(12345);
     Mesh buildingBoxMesh = BuildingGenerator::createUnitBoxMesh();  // Shared mesh for all buildings
+    buildingBoxMesh.texture = brickTexture;  // Apply brick texture to buildings
     std::cout << "Generated building data for " << buildingDataList.size() << " buildings" << std::endl;
 
     // Culling parameters: only render buildings within this radius of player's grid cell
@@ -236,6 +259,8 @@ int main(int argc, char* argv[]) {
 
         Renderable buildingRenderable;
         buildingRenderable.shader = ShaderType::Model;
+        buildingRenderable.triplanarMapping = true;  // Use world-space UV projection
+        buildingRenderable.textureScale = 4.0f;      // Texture repeats every 4 world units
         registry.addRenderable(buildingEntity, buildingRenderable);
 
         // Add box collider for collision detection
@@ -357,49 +382,41 @@ int main(int argc, char* argv[]) {
     registry.addFollowTarget(camera, followTarget);
 
     // Set up intro cinematic camera path
-    // Path: Start behind/side, sweep around to the normal follow position
-    // Calculate the actual follow camera end position and look-at based on FollowTarget defaults
-    glm::vec3 followCamEndPos;
-    glm::vec3 followCamLookAt;
-    {
-        // Character starts at origin facing forward (yaw = 0)
-        float yaw = 0.0f;
-        float yawRad = glm::radians(yaw);
-        float pitchRad = glm::radians(followTarget.pitch);
+    // Path: Start in front of character, sweep around to behind (follow camera position)
+    // Character faces FING building at (80, 10, 80) - yaw ~225 degrees
+    const float characterYaw = 225.0f;  // Face toward FING (positive X, positive Z diagonal)
+    const glm::vec3 characterPos(0.0f, 0.1f, 0.0f);  // Protagonist position during cinematic
 
-        glm::vec3 forward(-sin(yawRad), 0.0f, -cos(yawRad));  // (0, 0, -1)
-        glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));  // (1, 0, 0)
+    // Use the same calculation as FollowCameraSystem to ensure exact match
+    glm::vec3 followCamEndPos = FollowCameraSystem::getCameraPosition(characterPos, followTarget, characterYaw);
 
-        float verticalOffset = followTarget.height - sin(pitchRad) * followTarget.distance * 0.5f;
-        float horizontalDistance = followTarget.distance * cos(pitchRad * 0.5f);
-
-        // Camera positioned behind and to the right (over shoulder)
-        glm::vec3 characterPos(0.0f, 0.0f, 0.0f);
-        followCamEndPos = characterPos - forward * horizontalDistance + right * followTarget.shoulderOffset;
-        followCamEndPos.y += verticalOffset;
-
-        // Look-at point: ahead of character at eye level (same as FollowCameraSystem::getLookAtPosition)
-        followCamLookAt = characterPos + forward * followTarget.lookAhead;
-        followCamLookAt.y += 1.0f;  // Eye level
-    }
+    // Calculate look-at point
+    float yawRad = glm::radians(characterYaw);
+    glm::vec3 forward(-sin(yawRad), 0.0f, -cos(yawRad));
+    glm::vec3 followCamLookAt = characterPos + forward * followTarget.lookAhead;
+    followCamLookAt.y += 1.0f;  // Eye level
 
     {
         NurbsCurve introPath;
-        // Control points for a smooth arc around the character
-        glm::vec3 camStart(-6.0f, 3.0f, -4.0f);  // Start: front-left, looking at character's face
+        // Control points for a smooth arc - start in front of character (facing them), end behind
+        // Character faces toward (+X, +Z) diagonal, so "in front" is in that direction
+        glm::vec3 camStart(6.0f, 3.0f, 6.0f);  // Start: in front of character (toward FING direction)
         introPath.addControlPoint(camStart);
-        introPath.addControlPoint(glm::vec3(-3.0f, 2.0f, 0.0f));   // Sweep to left side
-        introPath.addControlPoint(glm::vec3(1.0f, 1.5f, 1.5f));    // Moving toward final position
-        introPath.addControlPoint(followCamEndPos);                 // End: exact follow camera position
+        introPath.addControlPoint(glm::vec3(3.0f, 2.5f, 0.0f));    // Sweep to the side
+        introPath.addControlPoint(glm::vec3(-2.0f, 2.0f, -2.0f));  // Moving toward final position
+        // Add intermediate point close to final to ensure smooth approach (avoid spline snap)
+        glm::vec3 nearFinal = glm::mix(glm::vec3(-2.0f, 2.0f, -2.0f), followCamEndPos, 0.7f);
+        introPath.addControlPoint(nearFinal);
+        introPath.addControlPoint(followCamEndPos);                 // End: behind character (follow camera)
 
         cinematicSystem.setCameraPath(introPath);
         cinematicSystem.setLookAtTarget(protagonist);
         cinematicSystem.setFinalLookAt(followCamLookAt);  // Blend to gameplay look-at at end
         cinematicSystem.setDuration(3.0f);  // 3 seconds
 
-        // Character stays facing forward (yaw=0) the whole time - camera sweeps around them
+        // Character stays facing toward FING the whole time
         cinematicSystem.setCharacterEntity(protagonist);
-        cinematicSystem.setCharacterYaw(0.0f, 0.0f);  // Always facing forward
+        cinematicSystem.setCharacterYaw(characterYaw, characterYaw);
     }
 
     // Menu UI entities
@@ -530,28 +547,32 @@ int main(int argc, char* argv[]) {
     std::vector<Entity> introTextEntities;
     const glm::vec4 introTextColor(255.0f, 255.0f, 255.0f, 255.0f);  // White
 
-    // Header: positioned on the right side (but left-aligned so it doesn't shift)
+    // Header: left-aligned but positioned on the right side (doesn't shift during typewriter)
     Entity introHeader = registry.create();
     UIText introHeaderText;
     introHeaderText.text = "";
     introHeaderText.fontId = "1942_32";
     introHeaderText.fontSize = 32;
     introHeaderText.anchor = AnchorPoint::TopLeft;
-    introHeaderText.offset = glm::vec2(350.0f, 50.0f);  // Right side position
+    introHeaderText.offset = glm::vec2(730.0f, 80.0f);  // Positioned to end near right edge when complete
     introHeaderText.horizontalAlign = HorizontalAlign::Left;
     introHeaderText.color = introTextColor;
     introHeaderText.visible = false;
     registry.addUIText(introHeader, introHeaderText);
     introTextEntities.push_back(introHeader);
 
-    // Body paragraphs: left-aligned story text
+    // Body paragraphs: left-aligned story text, centered on screen
+    const float introLeftMargin = 45.0f;  // Adjusted margin to center text better
+    const float introLineHeight = 100.0f;
+    const float introStartY = 180.0f;
+
     Entity introBody1 = registry.create();
     UIText introBody1Text;
     introBody1Text.text = "";
     introBody1Text.fontId = "1942_48";
     introBody1Text.fontSize = 48;
     introBody1Text.anchor = AnchorPoint::TopLeft;
-    introBody1Text.offset = glm::vec2(50.0f, 150.0f);
+    introBody1Text.offset = glm::vec2(introLeftMargin, introStartY);
     introBody1Text.horizontalAlign = HorizontalAlign::Left;
     introBody1Text.color = introTextColor;
     introBody1Text.visible = false;
@@ -564,7 +585,7 @@ int main(int argc, char* argv[]) {
     introBody2Text.fontId = "1942_48";
     introBody2Text.fontSize = 48;
     introBody2Text.anchor = AnchorPoint::TopLeft;
-    introBody2Text.offset = glm::vec2(50.0f, 250.0f);
+    introBody2Text.offset = glm::vec2(introLeftMargin, introStartY + introLineHeight);
     introBody2Text.horizontalAlign = HorizontalAlign::Left;
     introBody2Text.color = introTextColor;
     introBody2Text.visible = false;
@@ -577,7 +598,7 @@ int main(int argc, char* argv[]) {
     introBody3Text.fontId = "1942_48";
     introBody3Text.fontSize = 48;
     introBody3Text.anchor = AnchorPoint::TopLeft;
-    introBody3Text.offset = glm::vec2(50.0f, 350.0f);
+    introBody3Text.offset = glm::vec2(introLeftMargin, introStartY + introLineHeight * 2);
     introBody3Text.horizontalAlign = HorizontalAlign::Left;
     introBody3Text.color = introTextColor;
     introBody3Text.visible = false;
@@ -590,7 +611,7 @@ int main(int argc, char* argv[]) {
     introBody4Text.fontId = "1942_48";
     introBody4Text.fontSize = 48;
     introBody4Text.anchor = AnchorPoint::TopLeft;
-    introBody4Text.offset = glm::vec2(50.0f, 450.0f);
+    introBody4Text.offset = glm::vec2(introLeftMargin, introStartY + introLineHeight * 3);
     introBody4Text.horizontalAlign = HorizontalAlign::Left;
     introBody4Text.color = introTextColor;
     introBody4Text.visible = false;
@@ -603,7 +624,7 @@ int main(int argc, char* argv[]) {
     introBody5Text.fontId = "1942_48";
     introBody5Text.fontSize = 48;
     introBody5Text.anchor = AnchorPoint::TopLeft;
-    introBody5Text.offset = glm::vec2(50.0f, 550.0f);
+    introBody5Text.offset = glm::vec2(introLeftMargin, introStartY + introLineHeight * 4);
     introBody5Text.horizontalAlign = HorizontalAlign::Left;
     introBody5Text.color = introTextColor;
     introBody5Text.visible = false;
@@ -683,6 +704,45 @@ int main(int argc, char* argv[]) {
         glReadBuffer(GL_NONE);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
+
+    // Motion blur setup for cinematic (ping-pong FBOs)
+    Shader motionBlurShader;
+    motionBlurShader.loadFromFiles("shaders/motion_blur.vert", "shaders/motion_blur.frag");
+    GLuint motionBlurFBO[2];      // Two FBOs for ping-pong
+    GLuint motionBlurColorTex[2]; // Color attachments
+    GLuint motionBlurDepthRBO;    // Shared depth buffer
+    bool motionBlurInitialized = false;  // Track if we need to clear accumulation
+    int motionBlurPingPong = 0;   // Current read buffer (write to the other)
+    {
+        glGenFramebuffers(2, motionBlurFBO);
+        glGenTextures(2, motionBlurColorTex);
+        glGenRenderbuffers(1, &motionBlurDepthRBO);
+
+        for (int i = 0; i < 2; ++i) {
+            glBindTexture(GL_TEXTURE_2D, motionBlurColorTex[i]);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+            glBindFramebuffer(GL_FRAMEBUFFER, motionBlurFBO[i]);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, motionBlurColorTex[i], 0);
+        }
+
+        // Shared depth renderbuffer (for scene rendering)
+        glBindRenderbuffer(GL_RENDERBUFFER, motionBlurDepthRBO);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, WINDOW_WIDTH, WINDOW_HEIGHT);
+
+        // Attach depth to both FBOs
+        for (int i = 0; i < 2; ++i) {
+            glBindFramebuffer(GL_FRAMEBUFFER, motionBlurFBO[i]);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, motionBlurDepthRBO);
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+    const float cinematicMotionBlurStrength = 0.85f;  // Strong but not overwhelming blur
 
     // Light direction (same as in shaders)
     glm::vec3 lightDir = glm::normalize(glm::vec3(0.5f, 1.0f, 0.3f));
@@ -789,12 +849,20 @@ int main(int argc, char* argv[]) {
             else if (scene == SceneType::IntroCinematic) {
                 inputSystem.captureMouse(false);  // No mouse control during cinematic
 
-                // Reset protagonist position
+                // Reset protagonist position (slightly above ground)
                 auto* pt = registry.getTransform(protagonist);
                 if (pt) {
-                    pt->position = glm::vec3(0.0f, 0.0f, 0.0f);
+                    pt->position = glm::vec3(0.0f, 0.1f, 0.0f);
                 }
-                // Character facing is set by cinematicSystem.start() - starts facing camera
+                // Character faces toward FING (yaw 225 = toward +X,+Z diagonal)
+                auto* pf = registry.getFacingDirection(protagonist);
+                if (pf) {
+                    pf->yaw = 225.0f;
+                }
+
+                // Reset motion blur accumulation for fresh start
+                motionBlurInitialized = false;
+                motionBlurPingPong = 0;
 
                 // Start the cinematic
                 cinematicSystem.start(registry);
@@ -803,23 +871,14 @@ int main(int argc, char* argv[]) {
                 inputSystem.captureMouse(true);
                 registry.getUIText(sprintHint)->visible = true;
 
-                // Only reset protagonist position when coming from main menu (not from cinematic)
-                if (sceneManager.previous() == SceneType::MainMenu) {
-                    auto* pt = registry.getTransform(protagonist);
-                    if (pt) {
-                        pt->position = glm::vec3(0.0f, 0.0f, 0.0f);
-                    }
-                    auto* pf = registry.getFacingDirection(protagonist);
-                    if (pf) {
-                        pf->yaw = 0.0f;
-                    }
+                // Reset protagonist position when starting gameplay (from intro cinematic or direct)
+                auto* pt = registry.getTransform(protagonist);
+                if (pt) {
+                    pt->position = glm::vec3(0.0f, 0.1f, 0.0f);  // Slightly above ground to avoid clipping
                 }
-                // Coming from cinematic - position already set, just ensure camera is at final position
-                if (sceneManager.previous() == SceneType::IntroCinematic) {
-                    auto* ct = registry.getTransform(camera);
-                    if (ct) {
-                        ct->position = cinematicSystem.getFinalPosition();
-                    }
+                auto* pf = registry.getFacingDirection(protagonist);
+                if (pf) {
+                    pf->yaw = 225.0f;  // Face toward FING (+X,+Z diagonal)
                 }
             }
             else if (scene == SceneType::GodMode) {
@@ -1031,8 +1090,13 @@ int main(int argc, char* argv[]) {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
 
-            // === RENDER CINEMATIC SCENE ===
-            glClearColor(0.53f, 0.81f, 0.92f, 1.0f);  // Sky blue
+            // === RENDER CINEMATIC SCENE TO FBO FOR MOTION BLUR ===
+            // Determine which FBO to render to (the one that's NOT the previous frame)
+            int writeIdx = 1 - motionBlurPingPong;
+            glBindFramebuffer(GL_FRAMEBUFFER, motionBlurFBO[writeIdx]);
+            glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+
+            glClearColor(0.2f, 0.2f, 0.22f, 1.0f);  // Dark gray sky
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             // Draw debug axes
@@ -1071,7 +1135,7 @@ int main(int argc, char* argv[]) {
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
             glBindVertexArray(0);
 
-            // Render snow overlay
+            // Render snow overlay to the FBO
             if (snowEnabled) {
                 glDisable(GL_DEPTH_TEST);
                 glEnable(GL_BLEND);
@@ -1091,6 +1155,47 @@ int main(int argc, char* argv[]) {
                 glDisable(GL_BLEND);
                 glEnable(GL_DEPTH_TEST);
             }
+
+            // === MOTION BLUR POST-PROCESS ===
+            // Step 1: Blend current frame with previous accumulated frame, write to the OTHER FBO
+            int readIdx = motionBlurPingPong;  // Previous accumulated frame
+            int accumIdx = writeIdx;            // Where we just rendered current frame
+
+            // We need a third pass: blend into readIdx (the old accumulation buffer)
+            // Actually simpler: just blend and display, but ALSO write to accumulation
+
+            // First, copy the blended result to screen
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glDisable(GL_DEPTH_TEST);
+
+            motionBlurShader.use();
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, motionBlurColorTex[accumIdx]);  // Current frame we just rendered
+            motionBlurShader.setInt("uCurrentFrame", 0);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, motionBlurColorTex[readIdx]);  // Previous accumulated frame
+            motionBlurShader.setInt("uPreviousFrame", 1);
+
+            // On first frame, don't blend with previous (it's garbage)
+            float blendFactor = motionBlurInitialized ? cinematicMotionBlurStrength : 0.0f;
+            motionBlurShader.setFloat("uBlendFactor", blendFactor);
+
+            glBindVertexArray(overlayVAO);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+            // Step 2: Also write the blended result back to accumIdx FBO for next frame
+            glBindFramebuffer(GL_FRAMEBUFFER, motionBlurFBO[accumIdx]);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+            glBindVertexArray(0);
+            glEnable(GL_DEPTH_TEST);
+
+            // Swap ping-pong buffers and mark as initialized
+            motionBlurPingPong = accumIdx;
+            motionBlurInitialized = true;
         }
         else if (currentScene == SceneType::PlayGame) {
             // Open pause menu on escape
@@ -1223,7 +1328,7 @@ int main(int argc, char* argv[]) {
             glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
 
             // === MAIN RENDER PASS ===
-            glClearColor(0.53f, 0.81f, 0.92f, 1.0f);  // Sky blue
+            glClearColor(0.2f, 0.2f, 0.22f, 1.0f);  // Dark gray sky
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             // Draw debug axes
@@ -1345,7 +1450,7 @@ int main(int argc, char* argv[]) {
             }
 
             // Render
-            glClearColor(0.53f, 0.81f, 0.92f, 1.0f);  // Sky blue
+            glClearColor(0.2f, 0.2f, 0.22f, 1.0f);  // Dark gray sky
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             // Draw debug axes with free camera view

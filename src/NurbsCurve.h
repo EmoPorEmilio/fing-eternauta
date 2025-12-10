@@ -71,6 +71,10 @@ private:
         size_t n = m_controlPoints.size();
         if (n < 2) return m_controlPoints.empty() ? glm::vec3(0.0f) : m_controlPoints[0];
 
+        // Ensure exact endpoints
+        if (t <= 0.0f) return m_controlPoints[0];
+        if (t >= 1.0f) return m_controlPoints[n - 1];
+
         // Scale t to the number of segments
         float scaledT = t * (n - 1);
         size_t segment = static_cast<size_t>(scaledT);
