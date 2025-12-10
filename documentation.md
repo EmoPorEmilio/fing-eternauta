@@ -485,10 +485,341 @@ shaders/
 5. **Texture Caching**: Pre-rendered UI text
 6. **Mipmapping**: Reduced texture bandwidth at distance
 7. **Early Fragment Discard**: Minimap circle clipping in shader
+8. **Spatial Culling**: Octree + frustum culling for O(log n) visibility queries
+9. **Instanced Rendering**: Single draw call for all visible buildings
 
 ---
 
-## 21. Libraries Used
+## 21. Spatial Culling Architecture
+
+### 21.1 Octree Structure
+Buildings are stored in an octree for efficient spatial queries:
+
+```cpp
+template<typename T>
+class Octree {
+    static constexpr int MAX_OBJECTS_PER_NODE = 8;
+    static constexpr int MAX_DEPTH = 8;
+
+    struct Node {
+        AABB bounds;
+        std::vector<const T*> objects;
+        std::array<std::unique_ptr<Node>, 8> children;
+        bool isLeaf = true;
+    };
+
+    void queryFrustum(const Frustum& frustum, std::function<void(const T&)> callback);
+    void queryRadius(const glm::vec3& center, float radius, std::function<void(const T&)> callback);
+};
+```
+
+**Octree Benefits:**
+- O(log n) visibility queries vs O(n) linear scan
+- Early rejection of entire octree branches outside frustum
+- Supports both frustum culling and radius queries (for collision)
+
+### 21.2 Frustum Extraction (Gribb-Hartmann Method)
+Frustum planes extracted from view-projection matrix:
+
+```cpp
+void Frustum::extractFromMatrix(const glm::mat4& viewProjection) {
+    // Left plane: row 3 + row 0
+    m_planes[LEFT].normal.x = viewProjection[0][3] + viewProjection[0][0];
+    // ... 6 planes total (left, right, top, bottom, near, far)
+
+    // Normalize all planes
+    for (auto& plane : m_planes) {
+        plane.normalize();
+    }
+}
+```
+
+### 21.3 AABB-Frustum Intersection
+Uses p-vertex test for early rejection:
+
+```cpp
+bool Frustum::isBoxOutside(const AABB& box) const {
+    for (const auto& plane : m_planes) {
+        // Find corner most aligned with plane normal (p-vertex)
+        glm::vec3 pVertex;
+        pVertex.x = (plane.normal.x >= 0) ? box.max.x : box.min.x;
+        pVertex.y = (plane.normal.y >= 0) ? box.max.y : box.min.y;
+        pVertex.z = (plane.normal.z >= 0) ? box.max.z : box.min.z;
+
+        // If p-vertex behind plane, box is completely outside
+        if (plane.distanceToPoint(pVertex) < 0) return true;
+    }
+    return false;
+}
+```
+
+### 21.4 BuildingCuller Orchestration
+Combines octree queries with instanced rendering:
+
+```cpp
+class BuildingCuller {
+    void update(const glm::mat4& view, const glm::mat4& projection,
+                const glm::vec3& cameraPos, float maxRenderDistance) {
+        m_frustum.extractFromMatrix(projection * view);
+        m_instancedRenderer.beginFrame();
+
+        m_octree.queryFrustum(m_frustum, [&](const BuildingData& building) {
+            float distSq = glm::dot(building.position - cameraPos, ...);
+            if (distSq <= maxRenderDistance * maxRenderDistance) {
+                m_instancedRenderer.addInstance(building.position, building.scale);
+            }
+        });
+    }
+};
+```
+
+### 21.5 Uniform Location Caching
+The `Shader` class caches uniform locations to avoid repeated `glGetUniformLocation` calls:
+
+```cpp
+GLint Shader::getUniformLocation(const char* name) const
+{
+    // Check cache first
+    auto it = m_uniformCache.find(name);
+    if (it != m_uniformCache.end()) {
+        return it->second;
+    }
+
+    // Query OpenGL and cache the result
+    GLint location = glGetUniformLocation(m_program, name);
+    m_uniformCache[name] = location;
+    return location;
+}
+```
+
+**Performance Impact:**
+- First access: O(1) hash lookup + OpenGL query
+- Subsequent accesses: O(1) hash lookup only
+- Eliminates string comparison overhead in driver
+
+### 21.6 Instanced Rendering (Buildings)
+Buildings can be rendered using GPU instancing for massive draw call reduction:
+
+```cpp
+// InstancedRenderer stores transforms in GPU buffer
+class InstancedRenderer {
+    void addInstance(const glm::vec3& position, const glm::vec3& scale);
+    void render(const Mesh& mesh, Shader& shader);
+};
+
+// Instanced vertex shader receives model matrix per-instance
+layout (location = 5) in mat4 aInstanceModel;  // 4 vec4 slots
+```
+
+**Implementation Details:**
+- Model matrices stored in instance buffer (GL_DYNAMIC_STORAGE_BIT)
+- Matrix passed via vertex attributes with divisor=1
+- Single `glDrawElementsInstanced` call for all visible buildings
+
+**Performance Impact:**
+- **Before**: 49 draw calls (7×7 visible buildings)
+- **After**: 1 draw call with 49 instances
+- ~50x reduction in CPU-GPU command overhead
+
+### 21.7 Ray-AABB Intersection (Slab Method)
+Used for camera collision detection against buildings:
+
+```cpp
+bool AABB::raycast(const glm::vec3& origin, const glm::vec3& dirInv,
+                   float maxDist, float& tMin) const {
+    // Compute intersection distances for each axis slab
+    float t1 = (min.x - origin.x) * dirInv.x;
+    float t2 = (max.x - origin.x) * dirInv.x;
+    float t3 = (min.y - origin.y) * dirInv.y;
+    float t4 = (max.y - origin.y) * dirInv.y;
+    float t5 = (min.z - origin.z) * dirInv.z;
+    float t6 = (max.z - origin.z) * dirInv.z;
+
+    // tmin = entry point, tmax = exit point
+    float tmin = max(max(min(t1, t2), min(t3, t4)), min(t5, t6));
+    float tmax = min(min(max(t1, t2), max(t3, t4)), max(t5, t6));
+
+    // Ray misses or box is behind
+    if (tmax < 0 || tmin > tmax) return false;
+
+    tMin = (tmin < 0) ? tmax : tmin;  // Handle origin inside box
+    return tMin <= maxDist;
+}
+```
+
+**Key Concepts:**
+- `dirInv` = 1.0 / direction (precomputed for efficiency)
+- Slab method tests ray against 3 pairs of parallel planes
+- Entry point is maximum of all minimum slab intersections
+- Exit point is minimum of all maximum slab intersections
+
+### 21.8 Octree Raycast Traversal
+The octree supports raycasting for camera collision:
+
+```cpp
+void raycastNode(const Node* node, const glm::vec3& origin,
+                 const glm::vec3& dirInv, float& closestHit) const {
+    // Check if ray intersects node bounds OR origin is inside node
+    float nodeDist;
+    bool hitsNode = node->bounds.raycast(origin, dirInv, 1e10f, nodeDist);
+
+    if (!hitsNode && !node->bounds.contains(origin)) {
+        return;  // Early rejection
+    }
+
+    // Test all objects in this node
+    for (const T* obj : node->objects) {
+        AABB objBounds = m_getAABB(*obj);
+        float objDist;
+        if (objBounds.raycast(origin, dirInv, closestHit, objDist)) {
+            if (objDist < closestHit && objDist >= 0.0f) {
+                closestHit = objDist;
+            }
+        }
+    }
+
+    // Recurse into children
+    if (!node->isLeaf) {
+        for (const auto& child : node->children) {
+            if (child) raycastNode(child.get(), origin, dirInv, closestHit);
+        }
+    }
+}
+```
+
+**Important:** The `contains(origin)` check handles the case where the ray starts inside a node (common when camera is inside the world bounds).
+
+---
+
+## 22. Camera Collision System
+
+### 22.1 Overview
+Prevents the camera from clipping through buildings by casting a ray from the character toward the desired camera position.
+
+### 22.2 Ray Origin Selection
+The ray is cast from the **character's shoulder position**, not the look-at point:
+
+```cpp
+glm::vec3 characterPos = targetTransform->position;
+characterPos.y += 1.5f;  // Shoulder height
+
+camTransform.position = resolveCollision(characterPos, desiredCamPos, culler, extraAABB);
+```
+
+**Why shoulder position?**
+- The look-at point is ahead of the character (where camera looks)
+- Using look-at as ray origin would detect buildings in front of the character
+- We only want to detect walls between character and camera (behind)
+
+### 22.3 Collision Resolution
+When a hit is detected, camera is moved to the wall surface minus an offset:
+
+```cpp
+glm::vec3 resolveCollision(const glm::vec3& origin, const glm::vec3& desiredCamPos,
+                            const BuildingCuller& culler, const AABB* extraAABB) {
+    glm::vec3 toCamera = desiredCamPos - origin;
+    float desiredDist = glm::length(toCamera);
+    glm::vec3 direction = toCamera / desiredDist;
+
+    float hitDist;
+    if (culler.raycastWithExtra(origin, direction, desiredDist, extraAABB, hitDist)) {
+        // Pull camera in front of wall
+        float newDist = glm::max(hitDist - COLLISION_OFFSET, 0.1f);
+        return origin + direction * newDist;
+    }
+
+    return desiredCamPos;  // No obstruction
+}
+```
+
+### 22.4 Extra AABB Support
+Non-octree objects (like the FING building) can be included via `extraAABB` parameter:
+
+```cpp
+bool raycastWithExtra(const glm::vec3& origin, const glm::vec3& direction,
+                      float maxDist, const AABB* extraAABB, float& hitDist) const {
+    float octreeHit = maxDist;
+    bool hitOctree = m_octree.raycast(origin, direction, maxDist, octreeHit);
+
+    float extraHit = maxDist;
+    bool hitExtra = extraAABB && extraAABB->raycast(origin, dirInv, maxDist, extraHit);
+
+    // Return closest hit
+    if (hitOctree && hitExtra) {
+        hitDist = glm::min(octreeHit, extraHit);
+        return true;
+    }
+    // ... handle single hits
+}
+```
+
+---
+
+## 23. Character-Building Collision
+
+### 23.1 Octree-Based Collision Detection
+Character collision uses octree radius queries instead of iterating all entities:
+
+```cpp
+void resolveCollisions(const BuildingCuller* buildingCuller, const AABB* extraAABB) {
+    if (buildingCuller) {
+        buildingCuller->queryRadius(newPos, COLLISION_QUERY_RADIUS,
+            [&](const BuildingGenerator::BuildingData& building) {
+                // Build AABB for this building
+                glm::vec3 halfExtents(building.width * 0.5f, building.height * 0.5f, building.depth * 0.5f);
+                glm::vec3 center = building.position + glm::vec3(0.0f, building.height * 0.5f, 0.0f);
+                AABB buildingAABB = AABB::fromCenterExtents(center, halfExtents);
+                checkAABB(buildingAABB);
+            });
+    }
+}
+```
+
+### 23.2 AABB Expansion for Player Radius
+Buildings are expanded by player radius for circle-vs-AABB collision:
+
+```cpp
+auto checkAABB = [&](const AABB& aabb) {
+    AABB expanded = aabb;
+    expanded.min.x -= PLAYER_RADIUS;
+    expanded.min.z -= PLAYER_RADIUS;
+    expanded.max.x += PLAYER_RADIUS;
+    expanded.max.z += PLAYER_RADIUS;
+
+    // Check if player point is inside expanded box
+    if (newPos.x > expanded.min.x && newPos.x < expanded.max.x &&
+        newPos.z > expanded.min.z && newPos.z < expanded.max.z) {
+        // Resolve collision...
+    }
+};
+```
+
+### 23.3 Sliding Collision Response
+When collision is detected, player slides along walls using minimum penetration axis:
+
+```cpp
+// Calculate penetration on each axis
+float penLeft = newPos.x - expanded.min.x;
+float penRight = expanded.max.x - newPos.x;
+float penBack = newPos.z - expanded.min.z;
+float penFront = expanded.max.z - newPos.z;
+
+float minPenX = std::min(penLeft, penRight);
+float minPenZ = std::min(penBack, penFront);
+
+// Push out on axis with least penetration
+if (minPenX < minPenZ) {
+    newPos.x = (penLeft < penRight) ? expanded.min.x : expanded.max.x;
+} else {
+    newPos.z = (penBack < penFront) ? expanded.min.z : expanded.max.z;
+}
+```
+
+This creates smooth sliding behavior along walls instead of stopping abruptly.
+
+---
+
+## 24. Libraries Used
 
 | Library | Purpose |
 |---------|---------|

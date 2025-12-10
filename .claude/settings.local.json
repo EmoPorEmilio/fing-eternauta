@@ -21,7 +21,11 @@
       "Bash(cmd.exe /c \"del c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\ARCHITECTURE_IMPROVEMENTS.md\")",
       "Bash(del /f \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\PLAN.md\")",
       "Bash(del /f \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\ARCHITECTURE_IMPROVEMENTS.md\")",
-      "Bash(cmd.exe:*)"
+      "Bash(cmd.exe:*)",
+      "Bash(del \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\src\\ui\\stb_impl.cpp\")",
+      "Bash(\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" fing-eternauta.sln /p:Configuration=Debug /p:Platform=x64 /v:m /nologo)",
+      "Bash(\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" c:UsersemiliDesktopproyectosfing-eternauta-from-scratchfing-eternauta.sln /p:Configuration=Debug /p:Platform=x64 /v:m /nologo)",
+      "Bash(cd:*)"
     ],
     "deny": [],
     "ask": []

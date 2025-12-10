@@ -12,6 +12,7 @@ Shader::~Shader()
 
 Shader::Shader(Shader&& other) noexcept
     : m_program(other.m_program)
+    , m_uniformCache(std::move(other.m_uniformCache))
 {
     other.m_program = 0;
 }
@@ -23,6 +24,7 @@ Shader& Shader::operator=(Shader&& other) noexcept
         if (m_program)
             glDeleteProgram(m_program);
         m_program = other.m_program;
+        m_uniformCache = std::move(other.m_uniformCache);
         other.m_program = 0;
     }
     return *this;
@@ -113,7 +115,16 @@ void Shader::use() const
 
 GLint Shader::getUniformLocation(const char* name) const
 {
-    return glGetUniformLocation(m_program, name);
+    // Check cache first
+    auto it = m_uniformCache.find(name);
+    if (it != m_uniformCache.end()) {
+        return it->second;
+    }
+
+    // Query OpenGL and cache the result
+    GLint location = glGetUniformLocation(m_program, name);
+    m_uniformCache[name] = location;
+    return location;
 }
 
 void Shader::setMat4(const char* name, const glm::mat4& mat) const

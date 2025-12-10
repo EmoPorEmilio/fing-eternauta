@@ -31,6 +31,7 @@
 #include "src/core/GameConfig.h"
 #include "src/core/GameState.h"
 #include "src/core/WindowManager.h"
+#include "src/culling/BuildingCuller.h"
 
 int main(int argc, char* argv[]) {
     // Initialize window and OpenGL context
@@ -217,44 +218,11 @@ int main(int argc, char* argv[]) {
     buildingBoxMesh.normalMap = brickNormalMap;  // Apply brick normal map
     std::cout << "Generated building data for " << buildingDataList.size() << " buildings" << std::endl;
 
-    // Culling parameters: only render buildings within this radius of player's grid cell
+    // Culling parameters for building visibility
     const int BUILDING_RENDER_RADIUS = GameConfig::BUILDING_RENDER_RADIUS;
     const int MAX_VISIBLE_BUILDINGS = (2 * BUILDING_RENDER_RADIUS + 1) * (2 * BUILDING_RENDER_RADIUS + 1);
 
-    // Create a pool of building entities that will be reused
-    std::vector<Entity> buildingEntityPool;
-    buildingEntityPool.reserve(MAX_VISIBLE_BUILDINGS);
-
-    for (int i = 0; i < MAX_VISIBLE_BUILDINGS; ++i) {
-        Entity buildingEntity = registry.create();
-
-        Transform buildingTransform;
-        buildingTransform.position = glm::vec3(0.0f, -1000.0f, 0.0f);  // Start hidden below ground
-        buildingTransform.scale = glm::vec3(1.0f);
-        registry.addTransform(buildingEntity, buildingTransform);
-
-        MeshGroup buildingMeshGroup;
-        buildingMeshGroup.meshes.push_back(buildingBoxMesh);
-        registry.addMeshGroup(buildingEntity, std::move(buildingMeshGroup));
-
-        Renderable buildingRenderable;
-        buildingRenderable.shader = ShaderType::Model;
-        buildingRenderable.triplanarMapping = true;  // Use world-space UV projection
-        buildingRenderable.textureScale = GameConfig::BUILDING_TEXTURE_SCALE;
-        registry.addRenderable(buildingEntity, buildingRenderable);
-
-        // Add box collider for collision detection
-        // halfExtents are (0.5, 0.5, 0.5) for unit box - will be scaled by transform.scale
-        BoxCollider buildingCollider;
-        buildingCollider.halfExtents = glm::vec3(0.5f);  // Unit box half-extents
-        buildingCollider.offset = glm::vec3(0.0f);
-        registry.addBoxCollider(buildingEntity, buildingCollider);
-
-        buildingEntityPool.push_back(buildingEntity);
-    }
-    std::cout << "Created building entity pool with " << buildingEntityPool.size() << " entities" << std::endl;
-
-    // Get building footprints for minimap (all buildings for now - could optimize later)
+    // Get building footprints for minimap
     auto buildingFootprints = BuildingGenerator::getBuildingFootprints(buildingDataList);
 
     // Create ground plane
@@ -623,6 +591,20 @@ int main(int argc, char* argv[]) {
     Shader groundShader;
     groundShader.loadFromFiles("shaders/model.vert", "shaders/model.frag");
 
+    // Instanced building shader
+    Shader buildingInstancedShader;
+    buildingInstancedShader.loadFromFiles("shaders/building_instanced.vert", "shaders/model.frag");
+
+    // Instanced depth shader for shadow pass
+    Shader depthInstancedShader;
+    depthInstancedShader.loadFromFiles("shaders/depth_instanced.vert", "shaders/depth.frag");
+
+    // Building culling system (octree + frustum + instanced rendering)
+    BuildingCuller buildingCuller;
+    // Max render distance in world units (based on grid distance)
+    const float BUILDING_MAX_RENDER_DISTANCE = BUILDING_RENDER_RADIUS * BuildingGenerator::BLOCK_SIZE * 1.5f;
+    buildingCuller.init(buildingDataList, MAX_VISIBLE_BUILDINGS);
+
     // Debug axes
     Shader colorShader;
     colorShader.loadFromFiles("shaders/color.vert", "shaders/color.frag");
@@ -975,24 +957,45 @@ int main(int argc, char* argv[]) {
             animationSystem.update(registry, dt);
             skeletonSystem.update(registry);
 
-            // Update building culling for cinematic (character at origin)
-            auto* protagonistT = registry.getTransform(protagonist);
-            if (protagonistT) {
-                RenderHelpers::updateBuildingCulling(registry, gameState, protagonistT->position,
-                    buildingDataList, buildingEntityPool, BUILDING_RENDER_RADIUS);
-            }
-
             // Get cinematic view matrix
+            auto* protagonistT = registry.getTransform(protagonist);
             auto* cam = registry.getCamera(camera);
             auto* camT = registry.getTransform(camera);
             glm::mat4 cinematicView = cinematicSystem.getViewMatrix(registry);
             glm::mat4 projection = cam ? cam->projectionMatrix(aspectRatio) : glm::mat4(1.0f);
+            glm::vec3 cameraPos = cinematicSystem.getCurrentCameraPosition();
+
+            // Update building culling with octree + frustum
+            buildingCuller.update(cinematicView, projection, cameraPos, BUILDING_MAX_RENDER_DISTANCE);
 
             // === SHADOW PASS (cinematic) ===
             glm::vec3 focusPoint = protagonistT ? protagonistT->position : glm::vec3(0.0f);
             glm::mat4 lightSpaceMatrix = RenderHelpers::computeLightSpaceMatrix(focusPoint, lightDir);
-            RenderHelpers::renderShadowPass(shadowFBO, SHADOW_WIDTH, depthShader,
-                lightSpaceMatrix, registry, buildingEntityPool);
+
+            glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+            glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+            glClear(GL_DEPTH_BUFFER_BIT);
+
+            // Render buildings to shadow map using instanced rendering
+            buildingCuller.renderShadows(buildingBoxMesh, depthInstancedShader, lightSpaceMatrix);
+
+            // Render fing building to shadow map
+            {
+                auto* t = registry.getTransform(fingBuilding);
+                auto* mg = registry.getMeshGroup(fingBuilding);
+                if (t && mg) {
+                    depthShader.use();
+                    depthShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
+                    depthShader.setMat4("uModel", t->matrix());
+                    for (const auto& mesh : mg->meshes) {
+                        glBindVertexArray(mesh.vao);
+                        glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
+                    }
+                }
+            }
+
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
 
             // === RENDER CINEMATIC SCENE TO FBO FOR MOTION BLUR ===
             // Determine which FBO to render to (the one that's NOT the previous frame)
@@ -1014,6 +1017,23 @@ int main(int argc, char* argv[]) {
             // Render scene with cinematic view and shadows
             RenderHelpers::setupRenderSystem(renderSystem, gameState.fogEnabled, true, shadowDepthTexture, lightSpaceMatrix);
             renderSystem.updateWithView(registry, aspectRatio, cinematicView);
+
+            // Render buildings using instanced rendering
+            {
+                BuildingRenderParams buildingParams;
+                buildingParams.view = cinematicView;
+                buildingParams.projection = projection;
+                buildingParams.lightSpaceMatrix = lightSpaceMatrix;
+                buildingParams.lightDir = lightDir;
+                buildingParams.viewPos = cameraPos;
+                buildingParams.texture = brickTexture;
+                buildingParams.normalMap = brickNormalMap;
+                buildingParams.shadowMap = shadowDepthTexture;
+                buildingParams.textureScale = GameConfig::BUILDING_TEXTURE_SCALE;
+                buildingParams.fogEnabled = gameState.fogEnabled;
+                buildingParams.shadowsEnabled = true;
+                buildingCuller.render(buildingBoxMesh, buildingInstancedShader, buildingParams);
+            }
 
             // Render ground plane with shadows
             RenderHelpers::renderGroundPlane(groundShader, cinematicView, projection, lightSpaceMatrix,
@@ -1072,21 +1092,35 @@ int main(int argc, char* argv[]) {
 
             // Update gameplay systems
             cameraOrbitSystem.update(registry, input.mouseX, input.mouseY);
-            playerMovementSystem.update(registry, dt);
-            followCameraSystem.update(registry);
+
+            // Create AABB for FING building (approximate bounds based on model)
+            // Used for both player and camera collision
+            auto* fingT = registry.getTransform(fingBuilding);
+            AABB fingAABB;
+            if (fingT) {
+                // FING building model is roughly 10x30x10 units at scale 1, scaled by 2.5
+                glm::vec3 fingHalfExtents = glm::vec3(12.5f, 37.5f, 12.5f);  // Approximate
+                glm::vec3 fingCenter = fingT->position + glm::vec3(0.0f, fingHalfExtents.y, 0.0f);
+                fingAABB = AABB::fromCenterExtents(fingCenter, fingHalfExtents);
+            }
+
+            // Player movement with building collision
+            playerMovementSystem.update(registry, dt, &buildingCuller, fingT ? &fingAABB : nullptr);
+
+            // Camera with collision detection
+            followCameraSystem.updateWithCollision(registry, buildingCuller, fingT ? &fingAABB : nullptr);
+
             physicsSystem.update(registry, dt);
             collisionSystem.update(registry);
             animationSystem.update(registry, dt);
             skeletonSystem.update(registry);
 
-            // LOD and building culling updates
+            // LOD updates
             auto* protagonistT = registry.getTransform(protagonist);
             auto* fingBuildingT = registry.getTransform(fingBuilding);
             if (protagonistT) {
                 RenderHelpers::updateFingLOD(registry, gameState, fingBuilding, protagonistT->position,
                     fingHighDetail, fingLowDetail, lodSwitchDistance);
-                RenderHelpers::updateBuildingCulling(registry, gameState, protagonistT->position,
-                    buildingDataList, buildingEntityPool, BUILDING_RENDER_RADIUS);
             }
 
             // Compute camera matrices before shadow pass
@@ -1102,6 +1136,10 @@ int main(int argc, char* argv[]) {
                 projection = cam->projectionMatrix(aspectRatio);
             }
 
+            // Update building culling with octree + frustum
+            glm::vec3 cameraPos = camT ? camT->position : glm::vec3(0.0f);
+            buildingCuller.update(playView, projection, cameraPos, BUILDING_MAX_RENDER_DISTANCE);
+
             // === SHADOW PASS ===
             // Compute light space matrix centered on player
             float orthoSize = GameConfig::SHADOW_ORTHO_SIZE;
@@ -1114,29 +1152,16 @@ int main(int argc, char* argv[]) {
             glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
             glClear(GL_DEPTH_BUFFER_BIT);
 
-            depthShader.use();
-            depthShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
-
-            // Render buildings to shadow map
-            for (Entity e : buildingEntityPool) {
-                auto* t = registry.getTransform(e);
-                if (t && t->position.y > -100.0f) {
-                    depthShader.setMat4("uModel", t->matrix());
-                    auto* mg = registry.getMeshGroup(e);
-                    if (mg) {
-                        for (const auto& mesh : mg->meshes) {
-                            glBindVertexArray(mesh.vao);
-                            glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
-                        }
-                    }
-                }
-            }
+            // Render buildings to shadow map using instanced rendering
+            buildingCuller.renderShadows(buildingBoxMesh, depthInstancedShader, lightSpaceMatrix);
 
             // Render fing building to shadow map
             {
                 auto* t = registry.getTransform(fingBuilding);
                 auto* mg = registry.getMeshGroup(fingBuilding);
                 if (t && mg) {
+                    depthShader.use();
+                    depthShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
                     depthShader.setMat4("uModel", t->matrix());
                     for (const auto& mesh : mg->meshes) {
                         glBindVertexArray(mesh.vao);
@@ -1163,6 +1188,23 @@ int main(int argc, char* argv[]) {
             // Render scene with shadows
             RenderHelpers::setupRenderSystem(renderSystem, gameState.fogEnabled, true, shadowDepthTexture, lightSpaceMatrix);
             renderSystem.update(registry, aspectRatio);
+
+            // Render buildings using instanced rendering
+            {
+                BuildingRenderParams buildingParams;
+                buildingParams.view = playView;
+                buildingParams.projection = projection;
+                buildingParams.lightSpaceMatrix = lightSpaceMatrix;
+                buildingParams.lightDir = lightDir;
+                buildingParams.viewPos = cameraPos;
+                buildingParams.texture = brickTexture;
+                buildingParams.normalMap = brickNormalMap;
+                buildingParams.shadowMap = shadowDepthTexture;
+                buildingParams.textureScale = GameConfig::BUILDING_TEXTURE_SCALE;
+                buildingParams.fogEnabled = gameState.fogEnabled;
+                buildingParams.shadowsEnabled = true;
+                buildingCuller.render(buildingBoxMesh, buildingInstancedShader, buildingParams);
+            }
 
             // Render ground plane with shadows
             RenderHelpers::renderGroundPlane(groundShader, playView, projection, lightSpaceMatrix,

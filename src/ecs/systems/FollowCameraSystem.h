@@ -1,9 +1,13 @@
 #pragma once
 #include "../Registry.h"
+#include "../../culling/BuildingCuller.h"
 #include <glm/glm.hpp>
 
 class FollowCameraSystem {
 public:
+    // Camera collision offset - how far from wall to place camera
+    static constexpr float COLLISION_OFFSET = 0.5f;
+
     void update(Registry& registry) {
         registry.forEachFollowTarget([&](Entity camEntity, Transform& camTransform, FollowTarget& ft) {
             if (ft.target == NULL_ENTITY) return;
@@ -13,6 +17,26 @@ public:
             if (!targetTransform || !facing) return;
 
             camTransform.position = getCameraPosition(targetTransform->position, ft, facing->yaw);
+        });
+    }
+
+    // Update with camera collision against buildings
+    void updateWithCollision(Registry& registry, const BuildingCuller& culler, const AABB* extraAABB = nullptr) {
+        registry.forEachFollowTarget([&](Entity camEntity, Transform& camTransform, FollowTarget& ft) {
+            if (ft.target == NULL_ENTITY) return;
+
+            auto* targetTransform = registry.getTransform(ft.target);
+            auto* facing = registry.getFacingDirection(ft.target);
+            if (!targetTransform || !facing) return;
+
+            glm::vec3 desiredPos = getCameraPosition(targetTransform->position, ft, facing->yaw);
+
+            // For collision, cast from character position (at shoulder height) toward camera
+            // This detects walls between character and camera
+            glm::vec3 characterPos = targetTransform->position;
+            characterPos.y += 1.5f;  // Shoulder height
+
+            camTransform.position = resolveCollision(characterPos, desiredPos, culler, extraAABB);
         });
     }
 
@@ -45,5 +69,27 @@ public:
         glm::vec3 lookAt = targetTransform.position + forward * ft.lookAhead;
         lookAt.y += 1.0f;
         return lookAt;
+    }
+
+    // Resolve camera collision - move camera closer if obstructed
+    static glm::vec3 resolveCollision(const glm::vec3& lookAt, const glm::vec3& desiredCamPos,
+                                       const BuildingCuller& culler, const AABB* extraAABB) {
+        glm::vec3 toCamera = desiredCamPos - lookAt;
+        float desiredDist = glm::length(toCamera);
+
+        if (desiredDist < 0.01f) {
+            return desiredCamPos;  // Camera essentially at look-at point
+        }
+
+        glm::vec3 direction = toCamera / desiredDist;
+
+        float hitDist;
+        if (culler.raycastWithExtra(lookAt, direction, desiredDist, extraAABB, hitDist)) {
+            // Hit something - move camera to hit point minus offset
+            float newDist = glm::max(hitDist - COLLISION_OFFSET, 0.1f);  // Don't go behind look-at point
+            return lookAt + direction * newDist;
+        }
+
+        return desiredCamPos;
     }
 };

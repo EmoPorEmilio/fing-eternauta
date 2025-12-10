@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 class Shader
 {
@@ -34,6 +35,7 @@ public:
 
 private:
     GLuint m_program = 0;
+    mutable std::unordered_map<std::string, GLint> m_uniformCache;
 
     GLuint compileShader(GLenum type, const char* source);
     GLint getUniformLocation(const char* name) const;

@@ -23,37 +23,6 @@ inline glm::mat4 computeLightSpaceMatrix(const glm::vec3& focusPoint, const glm:
     return lightProjection * lightView;
 }
 
-// Execute shadow pass for building entities
-inline void renderShadowPass(GLuint shadowFBO, int shadowSize,
-                             Shader& depthShader,
-                             const glm::mat4& lightSpaceMatrix,
-                             Registry& registry,
-                             const std::vector<Entity>& buildingEntityPool) {
-    glViewport(0, 0, shadowSize, shadowSize);
-    glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
-    glClear(GL_DEPTH_BUFFER_BIT);
-
-    depthShader.use();
-    depthShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
-
-    for (Entity e : buildingEntityPool) {
-        auto* t = registry.getTransform(e);
-        if (t && t->position.y > -100.0f) {
-            depthShader.setMat4("uModel", t->matrix());
-            auto* mg = registry.getMeshGroup(e);
-            if (mg) {
-                for (const auto& mesh : mg->meshes) {
-                    glBindVertexArray(mesh.vao);
-                    glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
-                }
-            }
-        }
-    }
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
-}
-
 // Render ground plane with all uniforms
 inline void renderGroundPlane(Shader& groundShader,
                               const glm::mat4& view, const glm::mat4& projection,
@@ -108,46 +77,6 @@ inline void renderSnowOverlay(Shader& overlayShader, GLuint overlayVAO,
 
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
-}
-
-// Update building culling based on player position
-inline void updateBuildingCulling(Registry& registry,
-                                  GameState& gameState,
-                                  const glm::vec3& playerPos,
-                                  const std::vector<BuildingGenerator::BuildingData>& buildingDataList,
-                                  std::vector<Entity>& buildingEntityPool,
-                                  int buildingRenderRadius) {
-    auto [playerGridX, playerGridZ] = BuildingGenerator::getPlayerGridCell(playerPos);
-
-    if (playerGridX != gameState.lastPlayerGridX || playerGridZ != gameState.lastPlayerGridZ) {
-        gameState.lastPlayerGridX = playerGridX;
-        gameState.lastPlayerGridZ = playerGridZ;
-
-        std::vector<const BuildingGenerator::BuildingData*> visibleBuildings;
-        for (const auto& bldg : buildingDataList) {
-            if (BuildingGenerator::isBuildingInRange(bldg, playerGridX, playerGridZ, buildingRenderRadius)) {
-                visibleBuildings.push_back(&bldg);
-            }
-        }
-
-        size_t entityIdx = 0;
-        for (const auto* bldg : visibleBuildings) {
-            if (entityIdx >= buildingEntityPool.size()) break;
-            auto* transform = registry.getTransform(buildingEntityPool[entityIdx]);
-            if (transform) {
-                transform->position = bldg->position;
-                transform->scale = glm::vec3(bldg->width, bldg->height, bldg->depth);
-            }
-            ++entityIdx;
-        }
-        // Hide remaining buildings
-        for (; entityIdx < buildingEntityPool.size(); ++entityIdx) {
-            auto* transform = registry.getTransform(buildingEntityPool[entityIdx]);
-            if (transform) {
-                transform->position.y = -1000.0f;
-            }
-        }
-    }
 }
 
 // Update FING building LOD based on distance

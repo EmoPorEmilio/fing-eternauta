@@ -1,5 +1,8 @@
 #pragma once
 #include "../Registry.h"
+#include "../../culling/BuildingCuller.h"
+#include "../../culling/Octree.h"
+#include "../../procedural/BuildingGenerator.h"
 #include <SDL3/SDL.h>
 #include <glm/gtc/quaternion.hpp>
 
@@ -7,8 +10,11 @@ class PlayerMovementSystem {
 public:
     // Player collision radius for cylinder approximation
     static constexpr float PLAYER_RADIUS = 0.4f;
+    // Query radius for nearby buildings - needs to be large enough to catch buildings
+    // when player is in street (buildings are 8 wide, streets are 12 wide, block = 20)
+    static constexpr float COLLISION_QUERY_RADIUS = 15.0f;
 
-    void update(Registry& registry, float dt) {
+    void update(Registry& registry, float dt, const BuildingCuller* buildingCuller = nullptr, const AABB* extraAABB = nullptr) {
         const bool* keys = SDL_GetKeyboardState(nullptr);
 
         registry.forEachPlayerController([&](Entity entity, Transform& transform, PlayerController& pc) {
@@ -53,8 +59,8 @@ public:
                 // Calculate desired new position
                 glm::vec3 desiredPos = transform.position + moveDir * speed * dt;
 
-                // Check collision with all box colliders and resolve
-                glm::vec3 resolvedPos = resolveCollisions(registry, entity, transform.position, desiredPos);
+                // Check collision with buildings and resolve
+                glm::vec3 resolvedPos = resolveCollisions(registry, entity, transform.position, desiredPos, buildingCuller, extraAABB);
                 transform.position = resolvedPos;
             }
 
@@ -90,49 +96,32 @@ public:
     }
 
 private:
-    // Resolve collisions between player cylinder and box colliders
+    // Resolve collisions between player cylinder and buildings
     // Uses sliding collision response - player slides along walls
     glm::vec3 resolveCollisions(Registry& registry, Entity playerEntity,
-                                const glm::vec3& currentPos, const glm::vec3& desiredPos) {
+                                const glm::vec3& currentPos, const glm::vec3& desiredPos,
+                                const BuildingCuller* buildingCuller, const AABB* extraAABB) {
         glm::vec3 newPos = desiredPos;
 
-        // Check against all box colliders
-        registry.forEachBoxCollider([&](Entity boxEntity, Transform& boxTransform, BoxCollider& box) {
-            // Skip self-collision if player has a collider
-            if (boxEntity == playerEntity) return;
-
-            // Skip colliders that are hidden (below ground - building pool optimization)
-            if (boxTransform.position.y < -100.0f) return;
-
-            // Get box bounds in world space
-            // Note: buildings use scale for dimensions, so halfExtents come from scale
-            glm::vec3 boxCenter = boxTransform.position + box.offset;
-            glm::vec3 halfExtents = box.halfExtents * boxTransform.scale;
-
-            // For buildings, the box is centered at position with scale as dimensions
-            // The unit box mesh goes from Y=0 to Y=1, so center Y needs adjustment
-            boxCenter.y += halfExtents.y;  // Adjust center to middle of box
-
-            glm::vec3 boxMin = boxCenter - halfExtents;
-            glm::vec3 boxMax = boxCenter + halfExtents;
-
+        // Helper lambda to check collision against a single AABB
+        auto checkAABB = [&](const AABB& aabb) {
             // Expand box by player radius for circle-vs-AABB collision
-            boxMin.x -= PLAYER_RADIUS;
-            boxMin.z -= PLAYER_RADIUS;
-            boxMax.x += PLAYER_RADIUS;
-            boxMax.z += PLAYER_RADIUS;
+            AABB expanded = aabb;
+            expanded.min.x -= PLAYER_RADIUS;
+            expanded.min.z -= PLAYER_RADIUS;
+            expanded.max.x += PLAYER_RADIUS;
+            expanded.max.z += PLAYER_RADIUS;
 
-            // Check if player (as a point after expansion) is inside expanded box (XZ plane)
-            // Only check XZ - we don't want to block vertical movement here
-            if (newPos.x > boxMin.x && newPos.x < boxMax.x &&
-                newPos.z > boxMin.z && newPos.z < boxMax.z &&
-                newPos.y < boxMax.y && newPos.y >= boxMin.y - 1.0f) {  // Height check with small tolerance
+            // Check if player is inside expanded box (XZ plane)
+            if (newPos.x > expanded.min.x && newPos.x < expanded.max.x &&
+                newPos.z > expanded.min.z && newPos.z < expanded.max.z &&
+                newPos.y < expanded.max.y && newPos.y >= expanded.min.y - 1.0f) {
 
                 // Calculate penetration on each axis
-                float penLeft = newPos.x - boxMin.x;
-                float penRight = boxMax.x - newPos.x;
-                float penBack = newPos.z - boxMin.z;
-                float penFront = boxMax.z - newPos.z;
+                float penLeft = newPos.x - expanded.min.x;
+                float penRight = expanded.max.x - newPos.x;
+                float penBack = newPos.z - expanded.min.z;
+                float penFront = expanded.max.z - newPos.z;
 
                 // Find minimum penetration axis for sliding response
                 float minPenX = std::min(penLeft, penRight);
@@ -140,21 +129,51 @@ private:
 
                 // Push out on the axis with least penetration (sliding behavior)
                 if (minPenX < minPenZ) {
-                    // Push out on X axis
                     if (penLeft < penRight) {
-                        newPos.x = boxMin.x;  // Push left
+                        newPos.x = expanded.min.x;
                     } else {
-                        newPos.x = boxMax.x;  // Push right
+                        newPos.x = expanded.max.x;
                     }
                 } else {
-                    // Push out on Z axis
                     if (penBack < penFront) {
-                        newPos.z = boxMin.z;  // Push back
+                        newPos.z = expanded.min.z;
                     } else {
-                        newPos.z = boxMax.z;  // Push front
+                        newPos.z = expanded.max.z;
                     }
                 }
             }
+        };
+
+        // Check against buildings in octree
+        if (buildingCuller) {
+            buildingCuller->queryRadius(newPos, COLLISION_QUERY_RADIUS,
+                [&](const BuildingGenerator::BuildingData& building) {
+                    // Build AABB for this building
+                    glm::vec3 halfExtents(building.width * 0.5f, building.height * 0.5f, building.depth * 0.5f);
+                    glm::vec3 center = building.position + glm::vec3(0.0f, building.height * 0.5f, 0.0f);
+                    AABB buildingAABB = AABB::fromCenterExtents(center, halfExtents);
+                    checkAABB(buildingAABB);
+                });
+        }
+
+        // Check against extra AABB (e.g., FING building)
+        if (extraAABB) {
+            checkAABB(*extraAABB);
+        }
+
+        // Also check against any remaining box colliders in registry (non-building objects)
+        registry.forEachBoxCollider([&](Entity boxEntity, Transform& boxTransform, BoxCollider& box) {
+            if (boxEntity == playerEntity) return;
+            if (boxTransform.position.y < -100.0f) return;
+
+            glm::vec3 boxCenter = boxTransform.position + box.offset;
+            glm::vec3 halfExtents = box.halfExtents * boxTransform.scale;
+            boxCenter.y += halfExtents.y;
+
+            AABB boxAABB;
+            boxAABB.min = boxCenter - halfExtents;
+            boxAABB.max = boxCenter + halfExtents;
+            checkAABB(boxAABB);
         });
 
         return newPos;
