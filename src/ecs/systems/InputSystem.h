@@ -13,6 +13,7 @@ struct InputState {
     bool rightPressed = false;
     bool enterPressed = false;
     bool escapePressed = false;
+    bool pPressed = false;
 };
 
 class InputSystem {
@@ -48,6 +49,9 @@ public:
                         break;
                     case SDLK_RETURN:
                         state.enterPressed = true;
+                        break;
+                    case SDLK_P:
+                        state.pPressed = true;
                         break;
                 }
             }

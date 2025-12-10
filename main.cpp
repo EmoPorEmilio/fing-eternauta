@@ -164,6 +164,10 @@ int main(int argc, char* argv[]) {
     // LOD settings
     const float lodSwitchDistance = GameConfig::LOD_SWITCH_DISTANCE;
 
+    // Load comet model for sky effect
+    LoadedModel cometData = loadGLB("assets/comet.glb");
+    MeshGroup cometMeshGroup = std::move(cometData.meshGroup);
+
     // Game state - all runtime variables in one place
     GameState gameState;
 
@@ -475,13 +479,25 @@ int main(int argc, char* argv[]) {
     snowBlurText.visible = false;
     registry.addUIText(pauseSnowBlur, snowBlurText);
 
+    Entity pauseToonToggle = registry.create();
+    UIText toonToggleText;
+    toonToggleText.text = "COMIC MODE: NO";
+    toonToggleText.fontId = "oxanium_large";
+    toonToggleText.fontSize = 48;
+    toonToggleText.anchor = AnchorPoint::Center;
+    toonToggleText.offset = glm::vec2(0.0f, 210.0f);
+    toonToggleText.horizontalAlign = HorizontalAlign::Center;
+    toonToggleText.color = glm::vec4(128.0f, 128.0f, 128.0f, 255.0f);
+    toonToggleText.visible = false;
+    registry.addUIText(pauseToonToggle, toonToggleText);
+
     Entity pauseMenuOption = registry.create();
     UIText pauseMenuText;
     pauseMenuText.text = "BACK TO MAIN MENU";
     pauseMenuText.fontId = "oxanium_large";
     pauseMenuText.fontSize = 48;
     pauseMenuText.anchor = AnchorPoint::Center;
-    pauseMenuText.offset = glm::vec2(0.0f, 210.0f);
+    pauseMenuText.offset = glm::vec2(0.0f, 270.0f);
     pauseMenuText.horizontalAlign = HorizontalAlign::Center;
     pauseMenuText.color = glm::vec4(128.0f, 128.0f, 128.0f, 255.0f);
     pauseMenuText.visible = false;
@@ -632,6 +648,69 @@ int main(int argc, char* argv[]) {
         glBindVertexArray(0);
     }
 
+    // Comet shader and instance setup
+    Shader cometShader;
+    cometShader.loadFromFiles("shaders/comet.vert", "shaders/comet.frag");
+
+    // Setup comet instances - spread across the distant sky
+    const int NUM_COMETS = 12;
+    const float COMET_SKY_DISTANCE = 800.0f;  // Very far in the sky
+    const float COMET_SKY_HEIGHT = 400.0f;    // High up
+    const float COMET_SKY_SPREAD = 600.0f;    // Horizontal spread
+    const float COMET_FALL_DISTANCE = 500.0f;  // How far they fall diagonally
+    const float COMET_CYCLE_TIME = 20.0f;  // Seconds for one fall
+    const float COMET_FALL_SPEED = 12.5f;  // Speed multiplier
+    const float COMET_SCALE = 8.0f;        // Size of comet model (bigger since far away)
+    const glm::vec3 COMET_FALL_DIR = glm::normalize(glm::vec3(0.4f, -0.6f, 0.4f));  // Diagonal fall toward +X,+Z
+    const glm::vec3 COMET_COLOR = glm::vec3(1.0f, 0.6f, 0.2f);  // Fiery orange
+
+    // Generate start positions for comets in the sky TOWARD FING building (+X, +Z direction)
+    // This places them as a backdrop behind FING when viewed from player spawn
+    std::vector<glm::vec4> cometInstances(NUM_COMETS);
+    {
+        srand(42);
+        // Direction toward FING from origin (normalized)
+        glm::vec3 towardFing = glm::normalize(glm::vec3(1.0f, 0.0f, 1.0f));  // +X, +Z diagonal
+        // Perpendicular direction for spreading comets across the sky
+        glm::vec3 perpendicular = glm::normalize(glm::vec3(1.0f, 0.0f, -1.0f));  // perpendicular to towardFing
+
+        for (int i = 0; i < NUM_COMETS; ++i) {
+            // Base position: far in the +X, +Z direction (toward FING)
+            float distanceTowardFing = COMET_SKY_DISTANCE + ((float)rand() / RAND_MAX - 0.5f) * 200.0f;
+            // Spread left-right perpendicular to the FING direction
+            float spread = ((float)rand() / RAND_MAX - 0.5f) * COMET_SKY_SPREAD * 2.0f;
+            // Y: high in the sky with some variation
+            float y = COMET_SKY_HEIGHT + ((float)rand() / RAND_MAX) * 200.0f;
+
+            glm::vec3 pos = towardFing * distanceTowardFing + perpendicular * spread;
+            pos.y = y;
+
+            // Random time offset so they don't all fall in sync
+            float timeOffset = ((float)rand() / RAND_MAX) * COMET_CYCLE_TIME;
+
+            cometInstances[i] = glm::vec4(pos.x, pos.y, pos.z, timeOffset);
+        }
+    }
+
+    // Create VBO for comet instances
+    GLuint cometInstanceVBO;
+    glGenBuffers(1, &cometInstanceVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, cometInstanceVBO);
+    glBufferData(GL_ARRAY_BUFFER, cometInstances.size() * sizeof(glm::vec4), cometInstances.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    // Setup instance attribute on comet mesh VAO(s)
+    for (auto& mesh : cometMeshGroup.meshes) {
+        glBindVertexArray(mesh.vao);
+        glBindBuffer(GL_ARRAY_BUFFER, cometInstanceVBO);
+        // location 3: instance data (vec4: xyz position, w timeOffset)
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4), (void*)0);
+        glVertexAttribDivisor(3, 1);  // One per instance
+        glBindVertexArray(0);
+    }
+    std::cout << "Setup " << NUM_COMETS << " comet instances" << std::endl;
+
     // Shadow mapping setup
     Shader depthShader;
     depthShader.loadFromFiles("shaders/depth.vert", "shaders/depth.frag");
@@ -694,12 +773,46 @@ int main(int argc, char* argv[]) {
     }
     const float cinematicMotionBlurStrength = GameConfig::CINEMATIC_MOTION_BLUR;
 
+    // Toon/comic post-processing setup
+    Shader toonPostShader;
+    toonPostShader.loadFromFiles("shaders/toon_post.vert", "shaders/toon_post.frag");
+    GLuint toonFBO;
+    GLuint toonColorTex;
+    GLuint toonDepthRBO;
+    {
+        glGenFramebuffers(1, &toonFBO);
+        glGenTextures(1, &toonColorTex);
+        glGenRenderbuffers(1, &toonDepthRBO);
+
+        // Color texture for scene
+        glBindTexture(GL_TEXTURE_2D, toonColorTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        // Depth renderbuffer
+        glBindRenderbuffer(GL_RENDERBUFFER, toonDepthRBO);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+
+        // Setup FBO
+        glBindFramebuffer(GL_FRAMEBUFFER, toonFBO);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, toonColorTex, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, toonDepthRBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
     // Light direction (same as in shaders)
     glm::vec3 lightDir = glm::normalize(GameConfig::LIGHT_DIR);
 
     // Shadertoy overlay (fullscreen snow effect)
     Shader overlayShader;
     overlayShader.loadFromFiles("shaders/shadertoy_overlay.vert", "shaders/shadertoy_overlay.frag");
+
+    // Solid color overlay (for menu darkening)
+    Shader solidOverlayShader;
+    solidOverlayShader.loadFromFiles("shaders/solid_overlay.vert", "shaders/solid_overlay.frag");
     GLuint overlayVAO, overlayVBO;
     {
         // Fullscreen quad in NDC
@@ -727,7 +840,7 @@ int main(int argc, char* argv[]) {
     // UI constants
     const glm::vec4 menuColorSelected(255.0f, 255.0f, 255.0f, 255.0f);
     const glm::vec4 menuColorUnselected(128.0f, 128.0f, 128.0f, 255.0f);
-    const int PAUSE_MENU_ITEMS = 6;  // Fog, Snow, Snow Speed, Snow Angle, Snow Blur, Back
+    const int PAUSE_MENU_ITEMS = 7;  // Fog, Snow, Snow Speed, Snow Angle, Snow Blur, Toon, Back
 
     // Game loop
     bool running = true;
@@ -755,6 +868,7 @@ int main(int argc, char* argv[]) {
             registry.getUIText(pauseSnowSpeed)->visible = false;
             registry.getUIText(pauseSnowAngle)->visible = false;
             registry.getUIText(pauseSnowBlur)->visible = false;
+            registry.getUIText(pauseToonToggle)->visible = false;
             registry.getUIText(pauseMenuOption)->visible = false;
             // Hide all intro text entities
             for (auto& entity : introTextEntities) {
@@ -840,6 +954,7 @@ int main(int argc, char* argv[]) {
                 registry.getUIText(pauseSnowSpeed)->visible = true;
                 registry.getUIText(pauseSnowAngle)->visible = true;
                 registry.getUIText(pauseSnowBlur)->visible = true;
+                registry.getUIText(pauseToonToggle)->visible = true;
                 registry.getUIText(pauseMenuOption)->visible = true;
                 // Update colors based on selection
                 registry.getUIText(pauseFogToggle)->color = menuColorSelected;
@@ -847,6 +962,7 @@ int main(int argc, char* argv[]) {
                 registry.getUIText(pauseSnowSpeed)->color = menuColorUnselected;
                 registry.getUIText(pauseSnowAngle)->color = menuColorUnselected;
                 registry.getUIText(pauseSnowBlur)->color = menuColorUnselected;
+                registry.getUIText(pauseToonToggle)->color = menuColorUnselected;
                 registry.getUIText(pauseMenuOption)->color = menuColorUnselected;
                 uiSystem.clearCache();
             }
@@ -878,11 +994,76 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            // Clear with black for menu
-            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            // Update game time for comets animation
+            gameState.gameTime += dt;
+
+            // Static camera backdrop
+            const glm::vec3 menuCamPos = glm::vec3(-4.82f, 4.57f, 19.15f);
+            const glm::vec3 menuCamLookAt = glm::vec3(-4.16f, 4.81f, 19.85f);
+            glm::mat4 menuView = glm::lookAt(menuCamPos, menuCamLookAt, glm::vec3(0.0f, 1.0f, 0.0f));
+
+            auto* cam = registry.getCamera(camera);
+            glm::mat4 projection = cam ? cam->projectionMatrix(aspectRatio) : glm::mat4(1.0f);
+
+            // Clear with sky color
+            glClearColor(0.2f, 0.2f, 0.22f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            // Only render UI
+            // Render FING model (via render system - no buildings, just the FING entity)
+            renderSystem.setFogEnabled(gameState.fogEnabled);
+            renderSystem.updateWithView(registry, aspectRatio, menuView);
+
+            // Render ground plane (no buildings, no shadows)
+            RenderHelpers::renderGroundPlane(groundShader, menuView, projection, glm::mat4(1.0f),
+                lightDir, menuCamPos, gameState.fogEnabled, false, snowTexture, 0, planeVAO);
+
+            // Render snow overlay
+            RenderHelpers::renderSnowOverlay(overlayShader, overlayVAO, gameState);
+
+            // Render falling comets
+            {
+                glEnable(GL_DEPTH_TEST);
+                glDepthMask(GL_FALSE);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                cometShader.use();
+                cometShader.setMat4("uView", menuView);
+                cometShader.setMat4("uProjection", projection);
+                cometShader.setFloat("uTime", gameState.gameTime);
+                cometShader.setVec3("uCameraPos", menuCamPos);
+                cometShader.setFloat("uFallSpeed", COMET_FALL_SPEED);
+                cometShader.setFloat("uCycleTime", COMET_CYCLE_TIME);
+                cometShader.setFloat("uFallDistance", COMET_FALL_DISTANCE);
+                // More diagonal fall for menu backdrop (mostly horizontal)
+                cometShader.setVec3("uFallDirection", glm::normalize(glm::vec3(0.7f, -0.3f, 0.5f)));
+                cometShader.setFloat("uScale", COMET_SCALE);
+                cometShader.setInt("uDebugMode", 0);
+                cometShader.setFloat("uTrailStretch", 15.0f);
+                cometShader.setInt("uHasTexture", 0);
+                cometShader.setVec3("uCometColor", glm::vec3(1.0f, 0.4f, 0.1f));
+
+                for (const auto& mesh : cometMeshGroup.meshes) {
+                    glBindVertexArray(mesh.vao);
+                    glDrawElementsInstanced(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr, NUM_COMETS);
+                }
+
+                glDepthMask(GL_TRUE);
+            }
+
+            // Draw 75% black overlay
+            glDisable(GL_DEPTH_TEST);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+            solidOverlayShader.use();
+            solidOverlayShader.setVec4("uColor", glm::vec4(0.0f, 0.0f, 0.0f, 0.85f));
+            glBindVertexArray(overlayVAO);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+            glEnable(GL_DEPTH_TEST);
+
+            // Render UI on top
             uiSystem.update(registry, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
         }
         else if (currentScene == SceneType::IntroText) {
@@ -1043,6 +1224,48 @@ int main(int argc, char* argv[]) {
             // Render snow overlay to the FBO
             RenderHelpers::renderSnowOverlay(overlayShader, overlayVAO, gameState);
 
+            // Render falling comets in sky (Cinematic)
+            {
+                glEnable(GL_DEPTH_TEST);   // Read depth (occluded by closer geometry)
+                glDepthMask(GL_FALSE);     // Don't write depth
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                cometShader.use();
+                cometShader.setMat4("uView", cinematicView);
+                cometShader.setMat4("uProjection", projection);
+                cometShader.setFloat("uTime", gameState.gameTime);
+                cometShader.setVec3("uCameraPos", cameraPos);
+                cometShader.setFloat("uFallSpeed", COMET_FALL_SPEED);
+                cometShader.setFloat("uCycleTime", COMET_CYCLE_TIME);
+                cometShader.setFloat("uFallDistance", COMET_FALL_DISTANCE);
+                cometShader.setVec3("uFallDirection", COMET_FALL_DIR);
+                cometShader.setFloat("uScale", COMET_SCALE);
+                cometShader.setVec3("uCometColor", COMET_COLOR);
+                cometShader.setInt("uDebugMode", 0);  // Set to 1 to debug comet orientation
+                cometShader.setInt("uTexture", 0);   // Texture unit 0
+                cometShader.setFloat("uTrailStretch", 15.0f);  // Motion blur trail stretch (exaggerated)
+
+                for (const auto& mesh : cometMeshGroup.meshes) {
+                    // Bind texture if available
+                    if (mesh.texture != 0) {
+                        glActiveTexture(GL_TEXTURE0);
+                        glBindTexture(GL_TEXTURE_2D, mesh.texture);
+                        cometShader.setInt("uHasTexture", 1);
+                    } else {
+                        cometShader.setInt("uHasTexture", 0);
+                    }
+
+                    glBindVertexArray(mesh.vao);
+                    glDrawElementsInstanced(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr, NUM_COMETS);
+                }
+                glBindVertexArray(0);
+
+                glDisable(GL_BLEND);
+                glDepthMask(GL_TRUE);
+                glEnable(GL_DEPTH_TEST);
+            }
+
             // === MOTION BLUR POST-PROCESS ===
             // Step 1: Blend current frame with previous accumulated frame, write to the OTHER FBO
             int readIdx = gameState.motionBlurPingPong;  // Previous accumulated frame
@@ -1174,6 +1397,10 @@ int main(int argc, char* argv[]) {
             glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
 
             // === MAIN RENDER PASS ===
+            // If toon shading enabled, render to FBO first
+            if (gameState.toonShadingEnabled) {
+                glBindFramebuffer(GL_FRAMEBUFFER, toonFBO);
+            }
             glClearColor(0.2f, 0.2f, 0.22f, 1.0f);  // Dark gray sky
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -1232,8 +1459,70 @@ int main(int argc, char* argv[]) {
                 glEnable(GL_DEPTH_TEST);
             }
 
+            // Render falling comets in sky
+            if (cam && camT) {
+                glEnable(GL_DEPTH_TEST);   // Read depth (occluded by closer geometry)
+                glDepthMask(GL_FALSE);     // Don't write depth
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                cometShader.use();
+                cometShader.setMat4("uView", playView);
+                cometShader.setMat4("uProjection", projection);
+                cometShader.setFloat("uTime", gameState.gameTime);
+                cometShader.setVec3("uCameraPos", camT->position);
+                cometShader.setFloat("uFallSpeed", COMET_FALL_SPEED);
+                cometShader.setFloat("uCycleTime", COMET_CYCLE_TIME);
+                cometShader.setFloat("uFallDistance", COMET_FALL_DISTANCE);
+                cometShader.setVec3("uFallDirection", COMET_FALL_DIR);
+                cometShader.setFloat("uScale", COMET_SCALE);
+                cometShader.setVec3("uCometColor", COMET_COLOR);
+                cometShader.setInt("uDebugMode", 0);  // Set to 1 to debug comet orientation
+                cometShader.setInt("uTexture", 0);   // Texture unit 0
+                cometShader.setFloat("uTrailStretch", 15.0f);  // Motion blur trail stretch (exaggerated)
+
+                for (const auto& mesh : cometMeshGroup.meshes) {
+                    // Bind texture if available
+                    if (mesh.texture != 0) {
+                        glActiveTexture(GL_TEXTURE0);
+                        glBindTexture(GL_TEXTURE_2D, mesh.texture);
+                        cometShader.setInt("uHasTexture", 1);
+                    } else {
+                        cometShader.setInt("uHasTexture", 0);
+                    }
+
+                    glBindVertexArray(mesh.vao);
+                    glDrawElementsInstanced(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr, NUM_COMETS);
+                }
+                glBindVertexArray(0);
+
+                glDisable(GL_BLEND);
+                glDepthMask(GL_TRUE);
+                glEnable(GL_DEPTH_TEST);
+            }
+
             // Render snow overlay (fullscreen 2D effect)
             RenderHelpers::renderSnowOverlay(overlayShader, overlayVAO, gameState);
+
+            // === TOON POST-PROCESSING ===
+            if (gameState.toonShadingEnabled) {
+                // Switch back to screen
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+                // Apply toon shader
+                toonPostShader.use();
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, toonColorTex);
+                toonPostShader.setInt("uSceneTex", 0);
+                toonPostShader.setVec2("uTexelSize", glm::vec2(1.0f / GameConfig::WINDOW_WIDTH, 1.0f / GameConfig::WINDOW_HEIGHT));
+
+                glDisable(GL_DEPTH_TEST);
+                glBindVertexArray(overlayVAO);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                glBindVertexArray(0);
+                glEnable(GL_DEPTH_TEST);
+            }
 
             // Build marker positions for minimap
             std::vector<glm::vec3> minimapMarkers;
@@ -1255,6 +1544,22 @@ int main(int argc, char* argv[]) {
             // Free camera control
             freeCameraSystem.update(registry, dt, input.mouseX, input.mouseY);
 
+            // Debug: Write camera position and lookAt to file when P is pressed
+            if (input.pPressed) {
+                auto* camT_debug = registry.getTransform(camera);
+                if (camT_debug) {
+                    glm::vec3 pos = camT_debug->position;
+                    glm::vec3 lookAt = pos + freeCameraSystem.forward();
+                    FILE* f = fopen("camera_debug.txt", "a");
+                    if (f) {
+                        fprintf(f, "Camera Position: (%.2f, %.2f, %.2f)\n", pos.x, pos.y, pos.z);
+                        fprintf(f, "Camera LookAt:   (%.2f, %.2f, %.2f)\n", lookAt.x, lookAt.y, lookAt.z);
+                        fprintf(f, "Yaw: %.2f, Pitch: %.2f\n\n", freeCameraSystem.yaw(), freeCameraSystem.pitch());
+                        fclose(f);
+                    }
+                }
+            }
+
             // Still update animations for visual effect
             animationSystem.update(registry, dt);
             skeletonSystem.update(registry);
@@ -1267,6 +1572,10 @@ int main(int argc, char* argv[]) {
             }
 
             // Render
+            // If toon shading enabled, render to FBO first
+            if (gameState.toonShadingEnabled) {
+                glBindFramebuffer(GL_FRAMEBUFFER, toonFBO);
+            }
             glClearColor(0.2f, 0.2f, 0.22f, 1.0f);  // Dark gray sky
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -1300,7 +1609,70 @@ int main(int argc, char* argv[]) {
                 glBindVertexArray(planeVAO);
                 glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
                 glBindVertexArray(0);
+
+                // Render falling comets in sky (GodMode)
+                // view and projection already defined above
+
+                glEnable(GL_DEPTH_TEST);   // Read depth (occluded by closer geometry)
+                glDepthMask(GL_FALSE);     // Don't write depth
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                cometShader.use();
+                cometShader.setMat4("uView", view);
+                cometShader.setMat4("uProjection", projection);
+                cometShader.setFloat("uTime", gameState.gameTime);
+                cometShader.setVec3("uCameraPos", camT->position);
+                cometShader.setFloat("uFallSpeed", COMET_FALL_SPEED);
+                cometShader.setFloat("uCycleTime", COMET_CYCLE_TIME);
+                cometShader.setFloat("uFallDistance", COMET_FALL_DISTANCE);
+                cometShader.setVec3("uFallDirection", COMET_FALL_DIR);
+                cometShader.setFloat("uScale", COMET_SCALE);
+                cometShader.setVec3("uCometColor", COMET_COLOR);
+                cometShader.setInt("uDebugMode", 0);
+                cometShader.setInt("uTexture", 0);   // Texture unit 0
+                cometShader.setFloat("uTrailStretch", 15.0f);  // Motion blur trail stretch (exaggerated)
+
+                for (const auto& mesh : cometMeshGroup.meshes) {
+                    // Bind texture if available
+                    if (mesh.texture != 0) {
+                        glActiveTexture(GL_TEXTURE0);
+                        glBindTexture(GL_TEXTURE_2D, mesh.texture);
+                        cometShader.setInt("uHasTexture", 1);
+                    } else {
+                        cometShader.setInt("uHasTexture", 0);
+                    }
+
+                    glBindVertexArray(mesh.vao);
+                    glDrawElementsInstanced(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr, NUM_COMETS);
+                }
+                glBindVertexArray(0);
+
+                glDisable(GL_BLEND);
+                glDepthMask(GL_TRUE);
+                glEnable(GL_DEPTH_TEST);
             }
+
+            // === TOON POST-PROCESSING ===
+            if (gameState.toonShadingEnabled) {
+                // Switch back to screen
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+                // Apply toon shader
+                toonPostShader.use();
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, toonColorTex);
+                toonPostShader.setInt("uSceneTex", 0);
+                toonPostShader.setVec2("uTexelSize", glm::vec2(1.0f / GameConfig::WINDOW_WIDTH, 1.0f / GameConfig::WINDOW_HEIGHT));
+
+                glDisable(GL_DEPTH_TEST);
+                glBindVertexArray(overlayVAO);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                glBindVertexArray(0);
+                glEnable(GL_DEPTH_TEST);
+            }
+
             minimapSystem.render(GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
             uiSystem.update(registry, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
         }
@@ -1325,7 +1697,8 @@ int main(int argc, char* argv[]) {
                 registry.getUIText(pauseSnowSpeed)->color = (gameState.pauseMenuSelection == 2) ? menuColorSelected : menuColorUnselected;
                 registry.getUIText(pauseSnowAngle)->color = (gameState.pauseMenuSelection == 3) ? menuColorSelected : menuColorUnselected;
                 registry.getUIText(pauseSnowBlur)->color = (gameState.pauseMenuSelection == 4) ? menuColorSelected : menuColorUnselected;
-                registry.getUIText(pauseMenuOption)->color = (gameState.pauseMenuSelection == 5) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseToonToggle)->color = (gameState.pauseMenuSelection == 5) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseMenuOption)->color = (gameState.pauseMenuSelection == 6) ? menuColorSelected : menuColorUnselected;
                 uiSystem.clearCache();
             }
 
@@ -1375,6 +1748,12 @@ int main(int argc, char* argv[]) {
                     uiSystem.clearCache();
                 }
                 else if (gameState.pauseMenuSelection == 5) {
+                    // Toggle toon/comic mode
+                    gameState.toonShadingEnabled = !gameState.toonShadingEnabled;
+                    registry.getUIText(pauseToonToggle)->text = gameState.toonShadingEnabled ? "COMIC MODE: YES" : "COMIC MODE: NO";
+                    uiSystem.clearCache();
+                }
+                else if (gameState.pauseMenuSelection == 6) {
                     // Back to main menu
                     sceneManager.switchTo(SceneType::MainMenu);
                 }

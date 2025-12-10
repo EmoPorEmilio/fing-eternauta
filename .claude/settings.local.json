@@ -25,7 +25,8 @@
       "Bash(del \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\src\\ui\\stb_impl.cpp\")",
       "Bash(\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" fing-eternauta.sln /p:Configuration=Debug /p:Platform=x64 /v:m /nologo)",
       "Bash(\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" c:UsersemiliDesktopproyectosfing-eternauta-from-scratchfing-eternauta.sln /p:Configuration=Debug /p:Platform=x64 /v:m /nologo)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\fing-eternauta.sln\" /p:Configuration=Debug /p:Platform=x64 /v:m /nologo)"
     ],
     "deny": [],
     "ask": []

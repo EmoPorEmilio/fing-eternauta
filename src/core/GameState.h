@@ -8,6 +8,7 @@ struct GameState {
     // Visual effects toggles
     bool fogEnabled = false;
     bool snowEnabled = true;
+    bool toonShadingEnabled = false;
 
     // Snow effect parameters
     float snowSpeed = GameConfig::SNOW_DEFAULT_SPEED;
