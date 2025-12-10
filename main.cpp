@@ -26,63 +26,18 @@
 #include "src/DebugRenderer.h"
 #include "src/Shader.h"
 #include "src/scenes/SceneManager.h"
+#include "src/scenes/RenderHelpers.h"
 #include "src/procedural/BuildingGenerator.h"
+#include "src/core/GameConfig.h"
+#include "src/core/GameState.h"
+#include "src/core/WindowManager.h"
 
 int main(int argc, char* argv[]) {
-    // SDL3 init
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
-        std::cerr << "SDL_Init failed: " << SDL_GetError() << std::endl;
+    // Initialize window and OpenGL context
+    WindowManager windowManager;
+    if (!windowManager.init()) {
         return -1;
     }
-
-    // SDL_ttf init
-    if (!TTF_Init()) {
-        std::cerr << "TTF_Init failed: " << SDL_GetError() << std::endl;
-        SDL_Quit();
-        return -1;
-    }
-
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-
-    const int WINDOW_WIDTH = 1280;
-    const int WINDOW_HEIGHT = 720;
-
-    SDL_Window* window = SDL_CreateWindow(
-        "fing-eternauta",
-        WINDOW_WIDTH, WINDOW_HEIGHT,
-        SDL_WINDOW_OPENGL
-    );
-    if (!window) {
-        std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << std::endl;
-        SDL_Quit();
-        return -1;
-    }
-
-    SDL_GLContext glContext = SDL_GL_CreateContext(window);
-    if (!glContext) {
-        std::cerr << "SDL_GL_CreateContext failed: " << SDL_GetError() << std::endl;
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return -1;
-    }
-
-    if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
-        std::cerr << "Failed to initialize GLAD" << std::endl;
-        SDL_GL_DestroyContext(glContext);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return -1;
-    }
-
-    std::cout << "OpenGL " << glGetString(GL_VERSION) << std::endl;
-
-    glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
-    glEnable(GL_DEPTH_TEST);
 
     // Registry
     Registry registry;
@@ -145,7 +100,7 @@ int main(int argc, char* argv[]) {
     uiSystem.fonts().loadFont("oxanium_24", "assets/fonts/Oxanium.ttf", 24);
     uiSystem.fonts().loadFont("oxanium_32", "assets/fonts/Oxanium.ttf", 32);
 
-    inputSystem.setWindow(window);
+    inputSystem.setWindow(windowManager.window());
 
     // Load assets
     LoadedModel protagonistData = loadGLB("assets/protagonist.glb");
@@ -154,7 +109,7 @@ int main(int argc, char* argv[]) {
     Entity protagonist = registry.create();
     Transform protagonistTransform;
     protagonistTransform.position = glm::vec3(0.0f, 0.0f, 0.0f);
-    protagonistTransform.scale = glm::vec3(0.01f);
+    protagonistTransform.scale = glm::vec3(GameConfig::PLAYER_SCALE);
     registry.addTransform(protagonist, protagonistTransform);
     registry.addMeshGroup(protagonist, std::move(protagonistData.meshGroup));
     Renderable protagonistRenderable;
@@ -164,14 +119,14 @@ int main(int argc, char* argv[]) {
 
     // Add player controller
     PlayerController playerController;
-    playerController.moveSpeed = 3.0f;
-    playerController.turnSpeed = 10.0f;
+    playerController.moveSpeed = GameConfig::PLAYER_MOVE_SPEED;
+    playerController.turnSpeed = GameConfig::PLAYER_TURN_SPEED;
     registry.addPlayerController(protagonist, playerController);
 
     // Add facing direction (decoupled from camera)
     FacingDirection facingDir;
     facingDir.yaw = 0.0f;
-    facingDir.turnSpeed = 10.0f;
+    facingDir.turnSpeed = GameConfig::PLAYER_TURN_SPEED;
     registry.addFacingDirection(protagonist, facingDir);
 
     if (protagonistData.skeleton) {
@@ -196,7 +151,7 @@ int main(int argc, char* argv[]) {
     Entity fingBuilding = registry.create();
     Transform fingTransform;
     // Move fing building outside the procedural grid (grid spans roughly -56 to +56)
-    fingTransform.position = glm::vec3(80.0f, 10.0f, 80.0f);  // Outside grid, raised high
+    fingTransform.position = GameConfig::FING_BUILDING_POS;  // Outside grid, raised high
     fingTransform.rotation = glm::angleAxis(glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));  // Rotate to stand upright
     fingTransform.scale = glm::vec3(2.5f);  // 2x larger (was 1.25)
     registry.addTransform(fingBuilding, fingTransform);
@@ -206,8 +161,10 @@ int main(int argc, char* argv[]) {
     registry.addRenderable(fingBuilding, fingRenderable);
 
     // LOD settings
-    const float lodSwitchDistance = 70.0f;  // Distance to switch between high/low detail
-    bool fingUsingHighDetail = false;  // Track current LOD state
+    const float lodSwitchDistance = GameConfig::LOD_SWITCH_DISTANCE;
+
+    // Game state - all runtime variables in one place
+    GameState gameState;
 
     // Load brick texture for buildings (before building mesh creation)
     GLuint brickTexture = 0;
@@ -261,7 +218,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Generated building data for " << buildingDataList.size() << " buildings" << std::endl;
 
     // Culling parameters: only render buildings within this radius of player's grid cell
-    const int BUILDING_RENDER_RADIUS = 3;  // 3x3 = 7x7 grid around player (49 buildings max)
+    const int BUILDING_RENDER_RADIUS = GameConfig::BUILDING_RENDER_RADIUS;
     const int MAX_VISIBLE_BUILDINGS = (2 * BUILDING_RENDER_RADIUS + 1) * (2 * BUILDING_RENDER_RADIUS + 1);
 
     // Create a pool of building entities that will be reused
@@ -283,7 +240,7 @@ int main(int argc, char* argv[]) {
         Renderable buildingRenderable;
         buildingRenderable.shader = ShaderType::Model;
         buildingRenderable.triplanarMapping = true;  // Use world-space UV projection
-        buildingRenderable.textureScale = 4.0f;      // Texture repeats every 4 world units
+        buildingRenderable.textureScale = GameConfig::BUILDING_TEXTURE_SCALE;
         registry.addRenderable(buildingEntity, buildingRenderable);
 
         // Add box collider for collision detection
@@ -297,16 +254,12 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "Created building entity pool with " << buildingEntityPool.size() << " entities" << std::endl;
 
-    // Track which buildings are currently visible (for culling updates)
-    int lastPlayerGridX = -9999;
-    int lastPlayerGridZ = -9999;
-
     // Get building footprints for minimap (all buildings for now - could optimize later)
     auto buildingFootprints = BuildingGenerator::getBuildingFootprints(buildingDataList);
 
     // Create ground plane
-    const float planeSize = 500.0f;
-    const float texScale = 0.5f;  // Same as terrain - tiles every 2 units
+    const float planeSize = GameConfig::GROUND_SIZE;
+    const float texScale = GameConfig::GROUND_TEXTURE_SCALE;
     const float uvScale = planeSize * texScale;
 
     Entity ground = registry.create();
@@ -393,9 +346,9 @@ int main(int argc, char* argv[]) {
     camTransform.position = glm::vec3(0.0f, 3.0f, 5.0f);
     registry.addTransform(camera, camTransform);
     CameraComponent camComponent;
-    camComponent.fov = 60.0f;
-    camComponent.nearPlane = 0.1f;
-    camComponent.farPlane = 100.0f;
+    camComponent.fov = GameConfig::CAMERA_FOV;
+    camComponent.nearPlane = GameConfig::CAMERA_NEAR;
+    camComponent.farPlane = GameConfig::CAMERA_FAR;
     camComponent.active = true;
     registry.addCamera(camera, camComponent);
 
@@ -406,9 +359,9 @@ int main(int argc, char* argv[]) {
 
     // Set up intro cinematic camera path
     // Path: Start in front of character, sweep around to behind (follow camera position)
-    // Character faces FING building at (80, 10, 80) - yaw ~225 degrees
-    const float characterYaw = 225.0f;  // Face toward FING (positive X, positive Z diagonal)
-    const glm::vec3 characterPos(0.0f, 0.1f, 0.0f);  // Protagonist position during cinematic
+    // Character faces FING building - yaw ~225 degrees
+    const float characterYaw = GameConfig::INTRO_CHARACTER_YAW;
+    const glm::vec3 characterPos = GameConfig::INTRO_CHARACTER_POS;
 
     // Use the same calculation as FollowCameraSystem to ensure exact match
     glm::vec3 followCamEndPos = FollowCameraSystem::getCameraPosition(characterPos, followTarget, characterYaw);
@@ -435,7 +388,7 @@ int main(int argc, char* argv[]) {
         cinematicSystem.setCameraPath(introPath);
         cinematicSystem.setLookAtTarget(protagonist);
         cinematicSystem.setFinalLookAt(followCamLookAt);  // Blend to gameplay look-at at end
-        cinematicSystem.setDuration(3.0f);  // 3 seconds
+        cinematicSystem.setDuration(GameConfig::CINEMATIC_DURATION);
 
         // Character stays facing toward FING the whole time
         cinematicSystem.setCharacterEntity(protagonist);
@@ -577,7 +530,7 @@ int main(int argc, char* argv[]) {
     introHeaderText.fontId = "1942_32";
     introHeaderText.fontSize = 32;
     introHeaderText.anchor = AnchorPoint::TopLeft;
-    introHeaderText.offset = glm::vec2(730.0f, 80.0f);  // Positioned to end near right edge when complete
+    introHeaderText.offset = glm::vec2(GameConfig::INTRO_HEADER_X, GameConfig::INTRO_HEADER_Y);
     introHeaderText.horizontalAlign = HorizontalAlign::Left;
     introHeaderText.color = introTextColor;
     introHeaderText.visible = false;
@@ -585,9 +538,9 @@ int main(int argc, char* argv[]) {
     introTextEntities.push_back(introHeader);
 
     // Body paragraphs: left-aligned story text, centered on screen
-    const float introLeftMargin = 45.0f;  // Adjusted margin to center text better
-    const float introLineHeight = 100.0f;
-    const float introStartY = 180.0f;
+    const float introLeftMargin = GameConfig::INTRO_BODY_LEFT_MARGIN;
+    const float introLineHeight = GameConfig::INTRO_LINE_HEIGHT;
+    const float introStartY = GameConfig::INTRO_BODY_START_Y;
 
     Entity introBody1 = registry.create();
     UIText introBody1Text;
@@ -663,14 +616,8 @@ int main(int argc, char* argv[]) {
         "Hurry.",
         "They are coming."
     };
-    int introCurrentLine = 0;
-    size_t introCurrentChar = 0;
-    float introTypewriterTimer = 0.0f;
-    const float introCharDelay = 0.08f;
-    const float introLineDelay = 0.5f;
-    float introLinePauseTimer = 0.0f;
-    bool introLineComplete = false;
-    bool introAllComplete = false;
+    const float introCharDelay = GameConfig::TYPEWRITER_CHAR_DELAY;
+    const float introLineDelay = GameConfig::TYPEWRITER_LINE_DELAY;
 
     // Ground plane shader (uses model shader)
     Shader groundShader;
@@ -706,7 +653,7 @@ int main(int argc, char* argv[]) {
     // Shadow mapping setup
     Shader depthShader;
     depthShader.loadFromFiles("shaders/depth.vert", "shaders/depth.frag");
-    const int SHADOW_WIDTH = 2048, SHADOW_HEIGHT = 2048;
+    const int SHADOW_WIDTH = GameConfig::SHADOW_MAP_SIZE, SHADOW_HEIGHT = GameConfig::SHADOW_MAP_SIZE;
     GLuint shadowFBO, shadowDepthTexture;
     {
         glGenFramebuffers(1, &shadowFBO);
@@ -734,8 +681,6 @@ int main(int argc, char* argv[]) {
     GLuint motionBlurFBO[2];      // Two FBOs for ping-pong
     GLuint motionBlurColorTex[2]; // Color attachments
     GLuint motionBlurDepthRBO;    // Shared depth buffer
-    bool motionBlurInitialized = false;  // Track if we need to clear accumulation
-    int motionBlurPingPong = 0;   // Current read buffer (write to the other)
     {
         glGenFramebuffers(2, motionBlurFBO);
         glGenTextures(2, motionBlurColorTex);
@@ -743,7 +688,7 @@ int main(int argc, char* argv[]) {
 
         for (int i = 0; i < 2; ++i) {
             glBindTexture(GL_TEXTURE_2D, motionBlurColorTex[i]);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -755,7 +700,7 @@ int main(int argc, char* argv[]) {
 
         // Shared depth renderbuffer (for scene rendering)
         glBindRenderbuffer(GL_RENDERBUFFER, motionBlurDepthRBO);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, WINDOW_WIDTH, WINDOW_HEIGHT);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
 
         // Attach depth to both FBOs
         for (int i = 0; i < 2; ++i) {
@@ -765,10 +710,10 @@ int main(int argc, char* argv[]) {
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
-    const float cinematicMotionBlurStrength = 0.85f;  // Strong but not overwhelming blur
+    const float cinematicMotionBlurStrength = GameConfig::CINEMATIC_MOTION_BLUR;
 
     // Light direction (same as in shaders)
-    glm::vec3 lightDir = glm::normalize(glm::vec3(0.5f, 1.0f, 0.3f));
+    glm::vec3 lightDir = glm::normalize(GameConfig::LIGHT_DIR);
 
     // Shadertoy overlay (fullscreen snow effect)
     Shader overlayShader;
@@ -791,25 +736,15 @@ int main(int argc, char* argv[]) {
         glEnableVertexAttribArray(0);
         glBindVertexArray(0);
     }
-    float gameTime = 0.0f;  // Track time for shader effects
 
     // Timing
     uint64_t prevTime = SDL_GetPerformanceCounter();
     uint64_t frequency = SDL_GetPerformanceFrequency();
-    float aspectRatio = (float)WINDOW_WIDTH / (float)WINDOW_HEIGHT;
+    float aspectRatio = (float)GameConfig::WINDOW_WIDTH / (float)GameConfig::WINDOW_HEIGHT;
 
-    // Menu state
-    int menuSelection = 0;  // 0 = Play Game, 1 = God Mode
-    int pauseMenuSelection = 0;  // 0 = Fog toggle, 1 = Back to main menu
+    // UI constants
     const glm::vec4 menuColorSelected(255.0f, 255.0f, 255.0f, 255.0f);
     const glm::vec4 menuColorUnselected(128.0f, 128.0f, 128.0f, 255.0f);
-
-    // Game settings
-    bool fogEnabled = false;
-    bool snowEnabled = true;
-    float snowSpeed = 7.0f;
-    float snowAngle = 20.0f;
-    float snowMotionBlur = 3.0f;  // 0.0 = no blur, higher = more trail
     const int PAUSE_MENU_ITEMS = 6;  // Fog, Snow, Snow Speed, Snow Angle, Snow Blur, Back
 
     // Game loop
@@ -818,7 +753,7 @@ int main(int argc, char* argv[]) {
         uint64_t currentTime = SDL_GetPerformanceCounter();
         float dt = (float)(currentTime - prevTime) / frequency;
         prevTime = currentTime;
-        gameTime += dt;  // Accumulate time for shader effects
+        gameState.gameTime += dt;  // Accumulate time for shader effects
 
         // Poll input events
         InputState input = inputSystem.pollEvents();
@@ -884,8 +819,8 @@ int main(int argc, char* argv[]) {
                 }
 
                 // Reset motion blur accumulation for fresh start
-                motionBlurInitialized = false;
-                motionBlurPingPong = 0;
+                gameState.motionBlurInitialized = false;
+                gameState.motionBlurPingPong = 0;
 
                 // Start the cinematic
                 cinematicSystem.start(registry);
@@ -917,7 +852,7 @@ int main(int argc, char* argv[]) {
             }
             else if (scene == SceneType::PauseMenu) {
                 inputSystem.captureMouse(false);
-                pauseMenuSelection = 0;  // Reset to first option
+                gameState.pauseMenuSelection = 0;  // Reset to first option
                 registry.getUIText(pauseFogToggle)->visible = true;
                 registry.getUIText(pauseSnowToggle)->visible = true;
                 registry.getUIText(pauseSnowSpeed)->visible = true;
@@ -941,20 +876,20 @@ int main(int argc, char* argv[]) {
         if (currentScene == SceneType::MainMenu) {
             // Menu navigation
             if (input.upPressed || input.downPressed) {
-                menuSelection = 1 - menuSelection;  // Toggle between 0 and 1
+                gameState.menuSelection = 1 - gameState.menuSelection;  // Toggle between 0 and 1
 
                 // Update menu colors
                 auto* text1 = registry.getUIText(menuOption1);
                 auto* text2 = registry.getUIText(menuOption2);
                 if (text1 && text2) {
-                    text1->color = (menuSelection == 0) ? menuColorSelected : menuColorUnselected;
-                    text2->color = (menuSelection == 1) ? menuColorSelected : menuColorUnselected;
+                    text1->color = (gameState.menuSelection == 0) ? menuColorSelected : menuColorUnselected;
+                    text2->color = (gameState.menuSelection == 1) ? menuColorSelected : menuColorUnselected;
                     uiSystem.clearCache();  // Force re-render with new colors
                 }
             }
 
             if (input.enterPressed) {
-                if (menuSelection == 0) {
+                if (gameState.menuSelection == 0) {
                     sceneManager.switchTo(SceneType::IntroText);
                 } else {
                     sceneManager.switchTo(SceneType::GodMode);
@@ -966,7 +901,7 @@ int main(int argc, char* argv[]) {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             // Only render UI
-            uiSystem.update(registry, WINDOW_WIDTH, WINDOW_HEIGHT);
+            uiSystem.update(registry, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
         }
         else if (currentScene == SceneType::IntroText) {
             // Skip intro with Enter or Escape
@@ -975,42 +910,42 @@ int main(int argc, char* argv[]) {
             }
 
             // Typewriter effect update
-            if (!introAllComplete) {
-                if (introLineComplete) {
+            if (!gameState.introAllComplete) {
+                if (gameState.introLineComplete) {
                     // Waiting between lines
-                    introLinePauseTimer += dt;
-                    if (introLinePauseTimer >= introLineDelay) {
-                        introLinePauseTimer = 0.0f;
-                        introLineComplete = false;
-                        introCurrentLine++;
-                        introCurrentChar = 0;
-                        if (introCurrentLine >= (int)introTexts.size()) {
-                            introAllComplete = true;
+                    gameState.introLinePauseTimer += dt;
+                    if (gameState.introLinePauseTimer >= introLineDelay) {
+                        gameState.introLinePauseTimer = 0.0f;
+                        gameState.introLineComplete = false;
+                        gameState.introCurrentLine++;
+                        gameState.introCurrentChar = 0;
+                        if (gameState.introCurrentLine >= (int)introTexts.size()) {
+                            gameState.introAllComplete = true;
                         }
                     }
-                } else if (introCurrentLine < (int)introTexts.size()) {
+                } else if (gameState.introCurrentLine < (int)introTexts.size()) {
                     // Typing characters
-                    introTypewriterTimer += dt;
-                    while (introTypewriterTimer >= introCharDelay && introCurrentChar < introTexts[introCurrentLine].length()) {
-                        introTypewriterTimer -= introCharDelay;
-                        introCurrentChar++;
+                    gameState.introTypewriterTimer += dt;
+                    while (gameState.introTypewriterTimer >= introCharDelay && gameState.introCurrentChar < introTexts[gameState.introCurrentLine].length()) {
+                        gameState.introTypewriterTimer -= introCharDelay;
+                        gameState.introCurrentChar++;
                         // Update the text entity
-                        auto* text = registry.getUIText(introTextEntities[introCurrentLine]);
+                        auto* text = registry.getUIText(introTextEntities[gameState.introCurrentLine]);
                         if (text) {
-                            text->text = introTexts[introCurrentLine].substr(0, introCurrentChar);
+                            text->text = introTexts[gameState.introCurrentLine].substr(0, gameState.introCurrentChar);
                             uiSystem.clearCache();
                         }
                     }
                     // Check if line is complete
-                    if (introCurrentChar >= introTexts[introCurrentLine].length()) {
-                        introLineComplete = true;
-                        introLinePauseTimer = 0.0f;
+                    if (gameState.introCurrentChar >= introTexts[gameState.introCurrentLine].length()) {
+                        gameState.introLineComplete = true;
+                        gameState.introLinePauseTimer = 0.0f;
                     }
                 }
             } else {
                 // All text complete, wait a moment then transition
-                introLinePauseTimer += dt;
-                if (introLinePauseTimer >= 2.0f) {  // 2 second pause after all text
+                gameState.introLinePauseTimer += dt;
+                if (gameState.introLinePauseTimer >= 2.0f) {  // 2 second pause after all text
                     sceneManager.switchTo(SceneType::IntroCinematic);
                 }
             }
@@ -1020,7 +955,7 @@ int main(int argc, char* argv[]) {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             // Only render UI
-            uiSystem.update(registry, WINDOW_WIDTH, WINDOW_HEIGHT);
+            uiSystem.update(registry, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
         }
         else if (currentScene == SceneType::IntroCinematic) {
             // Skip cinematic with Enter or Escape
@@ -1043,36 +978,8 @@ int main(int argc, char* argv[]) {
             // Update building culling for cinematic (character at origin)
             auto* protagonistT = registry.getTransform(protagonist);
             if (protagonistT) {
-                auto [playerGridX, playerGridZ] = BuildingGenerator::getPlayerGridCell(protagonistT->position);
-
-                if (playerGridX != lastPlayerGridX || playerGridZ != lastPlayerGridZ) {
-                    lastPlayerGridX = playerGridX;
-                    lastPlayerGridZ = playerGridZ;
-
-                    std::vector<const BuildingGenerator::BuildingData*> visibleBuildings;
-                    for (const auto& bldg : buildingDataList) {
-                        if (BuildingGenerator::isBuildingInRange(bldg, playerGridX, playerGridZ, BUILDING_RENDER_RADIUS)) {
-                            visibleBuildings.push_back(&bldg);
-                        }
-                    }
-
-                    size_t entityIdx = 0;
-                    for (const auto* bldg : visibleBuildings) {
-                        if (entityIdx >= buildingEntityPool.size()) break;
-                        auto* transform = registry.getTransform(buildingEntityPool[entityIdx]);
-                        if (transform) {
-                            transform->position = bldg->position;
-                            transform->scale = glm::vec3(bldg->width, bldg->height, bldg->depth);
-                        }
-                        ++entityIdx;
-                    }
-                    for (; entityIdx < buildingEntityPool.size(); ++entityIdx) {
-                        auto* transform = registry.getTransform(buildingEntityPool[entityIdx]);
-                        if (transform) {
-                            transform->position.y = -1000.0f;
-                        }
-                    }
-                }
+                RenderHelpers::updateBuildingCulling(registry, gameState, protagonistT->position,
+                    buildingDataList, buildingEntityPool, BUILDING_RENDER_RADIUS);
             }
 
             // Get cinematic view matrix
@@ -1082,42 +989,16 @@ int main(int argc, char* argv[]) {
             glm::mat4 projection = cam ? cam->projectionMatrix(aspectRatio) : glm::mat4(1.0f);
 
             // === SHADOW PASS (cinematic) ===
-            float orthoSize = 100.0f;
-            glm::vec3 lightPos = (protagonistT ? protagonistT->position : glm::vec3(0.0f)) + lightDir * 80.0f;
-            glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, 200.0f);
-            glm::mat4 lightView = glm::lookAt(lightPos, protagonistT ? protagonistT->position : glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-            glm::mat4 lightSpaceMatrix = lightProjection * lightView;
-
-            glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
-            glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
-            glClear(GL_DEPTH_BUFFER_BIT);
-
-            depthShader.use();
-            depthShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
-
-            // Render buildings to shadow map
-            for (Entity e : buildingEntityPool) {
-                auto* t = registry.getTransform(e);
-                if (t && t->position.y > -100.0f) {
-                    depthShader.setMat4("uModel", t->matrix());
-                    auto* mg = registry.getMeshGroup(e);
-                    if (mg) {
-                        for (const auto& mesh : mg->meshes) {
-                            glBindVertexArray(mesh.vao);
-                            glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
-                        }
-                    }
-                }
-            }
-
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+            glm::vec3 focusPoint = protagonistT ? protagonistT->position : glm::vec3(0.0f);
+            glm::mat4 lightSpaceMatrix = RenderHelpers::computeLightSpaceMatrix(focusPoint, lightDir);
+            RenderHelpers::renderShadowPass(shadowFBO, SHADOW_WIDTH, depthShader,
+                lightSpaceMatrix, registry, buildingEntityPool);
 
             // === RENDER CINEMATIC SCENE TO FBO FOR MOTION BLUR ===
             // Determine which FBO to render to (the one that's NOT the previous frame)
-            int writeIdx = 1 - motionBlurPingPong;
+            int writeIdx = 1 - gameState.motionBlurPingPong;
             glBindFramebuffer(GL_FRAMEBUFFER, motionBlurFBO[writeIdx]);
-            glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+            glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
 
             glClearColor(0.2f, 0.2f, 0.22f, 1.0f);  // Dark gray sky
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -1131,57 +1012,20 @@ int main(int argc, char* argv[]) {
             }
 
             // Render scene with cinematic view and shadows
-            renderSystem.setFogEnabled(fogEnabled);
-            renderSystem.setShadowsEnabled(true);
-            renderSystem.setShadowMap(shadowDepthTexture);
-            renderSystem.setLightSpaceMatrix(lightSpaceMatrix);
+            RenderHelpers::setupRenderSystem(renderSystem, gameState.fogEnabled, true, shadowDepthTexture, lightSpaceMatrix);
             renderSystem.updateWithView(registry, aspectRatio, cinematicView);
 
             // Render ground plane with shadows
-            groundShader.use();
-            groundShader.setMat4("uView", cinematicView);
-            groundShader.setMat4("uProjection", projection);
-            groundShader.setMat4("uModel", glm::mat4(1.0f));
-            groundShader.setVec3("uLightDir", lightDir);
-            groundShader.setVec3("uViewPos", cinematicSystem.getCurrentCameraPosition());
-            groundShader.setInt("uHasTexture", 1);
-            groundShader.setInt("uFogEnabled", fogEnabled ? 1 : 0);
-            groundShader.setInt("uShadowsEnabled", 1);
-            groundShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, snowTexture);
-            groundShader.setInt("uTexture", 0);
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
-            groundShader.setInt("uShadowMap", 1);
-            glBindVertexArray(planeVAO);
-            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
-            glBindVertexArray(0);
+            RenderHelpers::renderGroundPlane(groundShader, cinematicView, projection, lightSpaceMatrix,
+                lightDir, cinematicSystem.getCurrentCameraPosition(),
+                gameState.fogEnabled, true, snowTexture, shadowDepthTexture, planeVAO);
 
             // Render snow overlay to the FBO
-            if (snowEnabled) {
-                glDisable(GL_DEPTH_TEST);
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-                overlayShader.use();
-                overlayShader.setVec3("iResolution", glm::vec3((float)WINDOW_WIDTH, (float)WINDOW_HEIGHT, 1.0f));
-                overlayShader.setFloat("iTime", gameTime);
-                overlayShader.setFloat("uSnowSpeed", snowSpeed);
-                overlayShader.setFloat("uSnowDirectionDeg", snowAngle);
-                overlayShader.setFloat("uMotionBlur", snowMotionBlur);
-
-                glBindVertexArray(overlayVAO);
-                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-                glBindVertexArray(0);
-
-                glDisable(GL_BLEND);
-                glEnable(GL_DEPTH_TEST);
-            }
+            RenderHelpers::renderSnowOverlay(overlayShader, overlayVAO, gameState);
 
             // === MOTION BLUR POST-PROCESS ===
             // Step 1: Blend current frame with previous accumulated frame, write to the OTHER FBO
-            int readIdx = motionBlurPingPong;  // Previous accumulated frame
+            int readIdx = gameState.motionBlurPingPong;  // Previous accumulated frame
             int accumIdx = writeIdx;            // Where we just rendered current frame
 
             // We need a third pass: blend into readIdx (the old accumulation buffer)
@@ -1189,7 +1033,7 @@ int main(int argc, char* argv[]) {
 
             // First, copy the blended result to screen
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+            glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             glDisable(GL_DEPTH_TEST);
 
@@ -1202,7 +1046,7 @@ int main(int argc, char* argv[]) {
             motionBlurShader.setInt("uPreviousFrame", 1);
 
             // On first frame, don't blend with previous (it's garbage)
-            float blendFactor = motionBlurInitialized ? cinematicMotionBlurStrength : 0.0f;
+            float blendFactor = gameState.motionBlurInitialized ? cinematicMotionBlurStrength : 0.0f;
             motionBlurShader.setFloat("uBlendFactor", blendFactor);
 
             glBindVertexArray(overlayVAO);
@@ -1217,8 +1061,8 @@ int main(int argc, char* argv[]) {
             glEnable(GL_DEPTH_TEST);
 
             // Swap ping-pong buffers and mark as initialized
-            motionBlurPingPong = accumIdx;
-            motionBlurInitialized = true;
+            gameState.motionBlurPingPong = accumIdx;
+            gameState.motionBlurInitialized = true;
         }
         else if (currentScene == SceneType::PlayGame) {
             // Open pause menu on escape
@@ -1235,60 +1079,14 @@ int main(int argc, char* argv[]) {
             animationSystem.update(registry, dt);
             skeletonSystem.update(registry);
 
-            // LOD update for fing building
+            // LOD and building culling updates
             auto* protagonistT = registry.getTransform(protagonist);
             auto* fingBuildingT = registry.getTransform(fingBuilding);
-            if (protagonistT && fingBuildingT) {
-                float distToBuilding = glm::length(protagonistT->position - fingBuildingT->position);
-                bool shouldUseHighDetail = distToBuilding < lodSwitchDistance;
-
-                if (shouldUseHighDetail != fingUsingHighDetail) {
-                    fingUsingHighDetail = shouldUseHighDetail;
-                    auto* meshGroup = registry.getMeshGroup(fingBuilding);
-                    if (meshGroup) {
-                        meshGroup->meshes = fingUsingHighDetail ? fingHighDetail.meshes : fingLowDetail.meshes;
-                    }
-                }
-            }
-
-            // Building culling: update visible buildings based on player position
             if (protagonistT) {
-                auto [playerGridX, playerGridZ] = BuildingGenerator::getPlayerGridCell(protagonistT->position);
-
-                // Only update if player moved to a different grid cell
-                if (playerGridX != lastPlayerGridX || playerGridZ != lastPlayerGridZ) {
-                    lastPlayerGridX = playerGridX;
-                    lastPlayerGridZ = playerGridZ;
-
-                    // Collect buildings in range
-                    std::vector<const BuildingGenerator::BuildingData*> visibleBuildings;
-                    for (const auto& bldg : buildingDataList) {
-                        if (BuildingGenerator::isBuildingInRange(bldg, playerGridX, playerGridZ, BUILDING_RENDER_RADIUS)) {
-                            visibleBuildings.push_back(&bldg);
-                        }
-                    }
-
-                    // Update entity pool with visible buildings
-                    size_t entityIdx = 0;
-                    for (const auto* bldg : visibleBuildings) {
-                        if (entityIdx >= buildingEntityPool.size()) break;
-
-                        auto* transform = registry.getTransform(buildingEntityPool[entityIdx]);
-                        if (transform) {
-                            transform->position = bldg->position;
-                            transform->scale = glm::vec3(bldg->width, bldg->height, bldg->depth);
-                        }
-                        ++entityIdx;
-                    }
-
-                    // Hide remaining entities in the pool
-                    for (; entityIdx < buildingEntityPool.size(); ++entityIdx) {
-                        auto* transform = registry.getTransform(buildingEntityPool[entityIdx]);
-                        if (transform) {
-                            transform->position.y = -1000.0f;  // Hide below ground
-                        }
-                    }
-                }
+                RenderHelpers::updateFingLOD(registry, gameState, fingBuilding, protagonistT->position,
+                    fingHighDetail, fingLowDetail, lodSwitchDistance);
+                RenderHelpers::updateBuildingCulling(registry, gameState, protagonistT->position,
+                    buildingDataList, buildingEntityPool, BUILDING_RENDER_RADIUS);
             }
 
             // Compute camera matrices before shadow pass
@@ -1306,9 +1104,9 @@ int main(int argc, char* argv[]) {
 
             // === SHADOW PASS ===
             // Compute light space matrix centered on player
-            float orthoSize = 100.0f;
-            glm::vec3 lightPos = (protagonistT ? protagonistT->position : glm::vec3(0.0f)) + lightDir * 80.0f;
-            glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, 200.0f);
+            float orthoSize = GameConfig::SHADOW_ORTHO_SIZE;
+            glm::vec3 lightPos = (protagonistT ? protagonistT->position : glm::vec3(0.0f)) + lightDir * GameConfig::SHADOW_DISTANCE;
+            glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, GameConfig::SHADOW_NEAR, GameConfig::SHADOW_FAR);
             glm::mat4 lightView = glm::lookAt(lightPos, protagonistT ? protagonistT->position : glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
             glm::mat4 lightSpaceMatrix = lightProjection * lightView;
 
@@ -1348,7 +1146,7 @@ int main(int argc, char* argv[]) {
             }
 
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+            glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
 
             // === MAIN RENDER PASS ===
             glClearColor(0.2f, 0.2f, 0.22f, 1.0f);  // Dark gray sky
@@ -1362,33 +1160,14 @@ int main(int argc, char* argv[]) {
                 axes.draw();
             }
 
-            // Set shadow uniforms for render system
-            renderSystem.setFogEnabled(fogEnabled);
-            renderSystem.setShadowsEnabled(true);
-            renderSystem.setShadowMap(shadowDepthTexture);
-            renderSystem.setLightSpaceMatrix(lightSpaceMatrix);
+            // Render scene with shadows
+            RenderHelpers::setupRenderSystem(renderSystem, gameState.fogEnabled, true, shadowDepthTexture, lightSpaceMatrix);
             renderSystem.update(registry, aspectRatio);
 
             // Render ground plane with shadows
-            groundShader.use();
-            groundShader.setMat4("uView", playView);
-            groundShader.setMat4("uProjection", projection);
-            groundShader.setMat4("uModel", glm::mat4(1.0f));
-            groundShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
-            groundShader.setVec3("uLightDir", lightDir);
-            groundShader.setVec3("uViewPos", camT->position);
-            groundShader.setInt("uHasTexture", 1);
-            groundShader.setInt("uFogEnabled", fogEnabled ? 1 : 0);
-            groundShader.setInt("uShadowsEnabled", 1);
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, snowTexture);
-            groundShader.setInt("uTexture", 0);
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
-            groundShader.setInt("uShadowMap", 1);
-            glBindVertexArray(planeVAO);
-            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
-            glBindVertexArray(0);
+            RenderHelpers::renderGroundPlane(groundShader, playView, projection, lightSpaceMatrix,
+                lightDir, camT->position, gameState.fogEnabled, true,
+                snowTexture, shadowDepthTexture, planeVAO);
 
             // Render sun billboard
             if (cam && camT) {
@@ -1412,36 +1191,18 @@ int main(int argc, char* argv[]) {
             }
 
             // Render snow overlay (fullscreen 2D effect)
-            if (snowEnabled) {
-                glDisable(GL_DEPTH_TEST);
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-                overlayShader.use();
-                overlayShader.setVec3("iResolution", glm::vec3((float)WINDOW_WIDTH, (float)WINDOW_HEIGHT, 1.0f));
-                overlayShader.setFloat("iTime", gameTime);
-                overlayShader.setFloat("uSnowSpeed", snowSpeed);
-                overlayShader.setFloat("uSnowDirectionDeg", snowAngle);
-                overlayShader.setFloat("uMotionBlur", snowMotionBlur);
-
-                glBindVertexArray(overlayVAO);
-                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-                glBindVertexArray(0);
-
-                glDisable(GL_BLEND);
-                glEnable(GL_DEPTH_TEST);
-            }
+            RenderHelpers::renderSnowOverlay(overlayShader, overlayVAO, gameState);
 
             // Build marker positions for minimap
             std::vector<glm::vec3> minimapMarkers;
             if (fingBuildingT) {
                 minimapMarkers.push_back(fingBuildingT->position);
             }
-            minimapSystem.render(WINDOW_WIDTH, WINDOW_HEIGHT, protagonistFacing ? protagonistFacing->yaw : 0.0f,
+            minimapSystem.render(GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT, protagonistFacing ? protagonistFacing->yaw : 0.0f,
                                  uiSystem.fonts(), uiSystem.textCache(),
                                  protagonistT ? protagonistT->position : glm::vec3(0.0f), minimapMarkers,
                                  buildingFootprints);
-            uiSystem.update(registry, WINDOW_WIDTH, WINDOW_HEIGHT);
+            uiSystem.update(registry, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
         }
         else if (currentScene == SceneType::GodMode) {
             // Open pause menu on escape
@@ -1458,18 +1219,9 @@ int main(int argc, char* argv[]) {
 
             // LOD update for fing building (based on camera distance in god mode)
             auto* camT_lod = registry.getTransform(camera);
-            auto* fingBuildingT_lod = registry.getTransform(fingBuilding);
-            if (camT_lod && fingBuildingT_lod) {
-                float distToBuilding = glm::length(camT_lod->position - fingBuildingT_lod->position);
-                bool shouldUseHighDetail = distToBuilding < lodSwitchDistance;
-
-                if (shouldUseHighDetail != fingUsingHighDetail) {
-                    fingUsingHighDetail = shouldUseHighDetail;
-                    auto* meshGroup = registry.getMeshGroup(fingBuilding);
-                    if (meshGroup) {
-                        meshGroup->meshes = fingUsingHighDetail ? fingHighDetail.meshes : fingLowDetail.meshes;
-                    }
-                }
+            if (camT_lod) {
+                RenderHelpers::updateFingLOD(registry, gameState, fingBuilding, camT_lod->position,
+                    fingHighDetail, fingLowDetail, lodSwitchDistance);
             }
 
             // Render
@@ -1486,7 +1238,7 @@ int main(int argc, char* argv[]) {
                 colorShader.setMat4("uMVP", vp);
                 axes.draw();
 
-                renderSystem.setFogEnabled(fogEnabled);
+                renderSystem.setFogEnabled(gameState.fogEnabled);
                 renderSystem.updateWithView(registry, aspectRatio, view);
 
                 // Render ground plane
@@ -1499,7 +1251,7 @@ int main(int argc, char* argv[]) {
                 groundShader.setVec3("uLightDir", lightDir);
                 groundShader.setVec3("uViewPos", camT->position);
                 groundShader.setInt("uHasTexture", 1);
-                groundShader.setInt("uFogEnabled", fogEnabled ? 1 : 0);
+                groundShader.setInt("uFogEnabled", gameState.fogEnabled ? 1 : 0);
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_2D, snowTexture);
                 groundShader.setInt("uTexture", 0);
@@ -1507,8 +1259,8 @@ int main(int argc, char* argv[]) {
                 glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
                 glBindVertexArray(0);
             }
-            minimapSystem.render(WINDOW_WIDTH, WINDOW_HEIGHT);
-            uiSystem.update(registry, WINDOW_WIDTH, WINDOW_HEIGHT);
+            minimapSystem.render(GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+            uiSystem.update(registry, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
         }
         else if (currentScene == SceneType::PauseMenu) {
             // Resume game on escape
@@ -1518,49 +1270,49 @@ int main(int argc, char* argv[]) {
 
             // Menu navigation
             if (input.upPressed) {
-                pauseMenuSelection = (pauseMenuSelection - 1 + PAUSE_MENU_ITEMS) % PAUSE_MENU_ITEMS;
+                gameState.pauseMenuSelection = (gameState.pauseMenuSelection - 1 + PAUSE_MENU_ITEMS) % PAUSE_MENU_ITEMS;
             }
             if (input.downPressed) {
-                pauseMenuSelection = (pauseMenuSelection + 1) % PAUSE_MENU_ITEMS;
+                gameState.pauseMenuSelection = (gameState.pauseMenuSelection + 1) % PAUSE_MENU_ITEMS;
             }
 
             // Update menu colors based on selection
             if (input.upPressed || input.downPressed) {
-                registry.getUIText(pauseFogToggle)->color = (pauseMenuSelection == 0) ? menuColorSelected : menuColorUnselected;
-                registry.getUIText(pauseSnowToggle)->color = (pauseMenuSelection == 1) ? menuColorSelected : menuColorUnselected;
-                registry.getUIText(pauseSnowSpeed)->color = (pauseMenuSelection == 2) ? menuColorSelected : menuColorUnselected;
-                registry.getUIText(pauseSnowAngle)->color = (pauseMenuSelection == 3) ? menuColorSelected : menuColorUnselected;
-                registry.getUIText(pauseSnowBlur)->color = (pauseMenuSelection == 4) ? menuColorSelected : menuColorUnselected;
-                registry.getUIText(pauseMenuOption)->color = (pauseMenuSelection == 5) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseFogToggle)->color = (gameState.pauseMenuSelection == 0) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseSnowToggle)->color = (gameState.pauseMenuSelection == 1) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseSnowSpeed)->color = (gameState.pauseMenuSelection == 2) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseSnowAngle)->color = (gameState.pauseMenuSelection == 3) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseSnowBlur)->color = (gameState.pauseMenuSelection == 4) ? menuColorSelected : menuColorUnselected;
+                registry.getUIText(pauseMenuOption)->color = (gameState.pauseMenuSelection == 5) ? menuColorSelected : menuColorUnselected;
                 uiSystem.clearCache();
             }
 
             // Handle left/right for speed, angle, and blur adjustment
             if (input.leftPressed || input.rightPressed) {
                 float delta = input.rightPressed ? 1.0f : -1.0f;
-                if (pauseMenuSelection == 2) {
+                if (gameState.pauseMenuSelection == 2) {
                     // Adjust snow speed (0.1 to 10.0)
-                    snowSpeed = glm::clamp(snowSpeed + delta * 0.5f, 0.1f, 10.0f);
+                    gameState.snowSpeed = glm::clamp(gameState.snowSpeed + delta * 0.5f, 0.1f, 10.0f);
                     char buf[48];
-                    snprintf(buf, sizeof(buf), "SNOW SPEED: %.1f  < >", snowSpeed);
+                    snprintf(buf, sizeof(buf), "SNOW SPEED: %.1f  < >", gameState.snowSpeed);
                     registry.getUIText(pauseSnowSpeed)->text = buf;
                     uiSystem.clearCache();
                 }
-                else if (pauseMenuSelection == 3) {
+                else if (gameState.pauseMenuSelection == 3) {
                     // Adjust snow angle (-180 to 180)
-                    snowAngle = snowAngle + delta * 10.0f;
-                    if (snowAngle > 180.0f) snowAngle -= 360.0f;
-                    if (snowAngle < -180.0f) snowAngle += 360.0f;
+                    gameState.snowAngle = gameState.snowAngle + delta * 10.0f;
+                    if (gameState.snowAngle > 180.0f) gameState.snowAngle -= 360.0f;
+                    if (gameState.snowAngle < -180.0f) gameState.snowAngle += 360.0f;
                     char buf[48];
-                    snprintf(buf, sizeof(buf), "SNOW ANGLE: %.0f  < >", snowAngle);
+                    snprintf(buf, sizeof(buf), "SNOW ANGLE: %.0f  < >", gameState.snowAngle);
                     registry.getUIText(pauseSnowAngle)->text = buf;
                     uiSystem.clearCache();
                 }
-                else if (pauseMenuSelection == 4) {
+                else if (gameState.pauseMenuSelection == 4) {
                     // Adjust snow motion blur (0.0 to 5.0)
-                    snowMotionBlur = glm::clamp(snowMotionBlur + delta * 0.5f, 0.0f, 5.0f);
+                    gameState.snowMotionBlur = glm::clamp(gameState.snowMotionBlur + delta * 0.5f, 0.0f, 5.0f);
                     char buf[48];
-                    snprintf(buf, sizeof(buf), "SNOW BLUR: %.1f  < >", snowMotionBlur);
+                    snprintf(buf, sizeof(buf), "SNOW BLUR: %.1f  < >", gameState.snowMotionBlur);
                     registry.getUIText(pauseSnowBlur)->text = buf;
                     uiSystem.clearCache();
                 }
@@ -1568,19 +1320,19 @@ int main(int argc, char* argv[]) {
 
             // Handle enter
             if (input.enterPressed) {
-                if (pauseMenuSelection == 0) {
+                if (gameState.pauseMenuSelection == 0) {
                     // Toggle fog
-                    fogEnabled = !fogEnabled;
-                    registry.getUIText(pauseFogToggle)->text = fogEnabled ? "FOG: YES" : "FOG: NO";
+                    gameState.fogEnabled = !gameState.fogEnabled;
+                    registry.getUIText(pauseFogToggle)->text = gameState.fogEnabled ? "FOG: YES" : "FOG: NO";
                     uiSystem.clearCache();
                 }
-                else if (pauseMenuSelection == 1) {
+                else if (gameState.pauseMenuSelection == 1) {
                     // Toggle snow
-                    snowEnabled = !snowEnabled;
-                    registry.getUIText(pauseSnowToggle)->text = snowEnabled ? "SNOW: YES" : "SNOW: NO";
+                    gameState.snowEnabled = !gameState.snowEnabled;
+                    registry.getUIText(pauseSnowToggle)->text = gameState.snowEnabled ? "SNOW: YES" : "SNOW: NO";
                     uiSystem.clearCache();
                 }
-                else if (pauseMenuSelection == 5) {
+                else if (gameState.pauseMenuSelection == 5) {
                     // Back to main menu
                     sceneManager.switchTo(SceneType::MainMenu);
                 }
@@ -1591,19 +1343,15 @@ int main(int argc, char* argv[]) {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             // Only render UI
-            uiSystem.update(registry, WINDOW_WIDTH, WINDOW_HEIGHT);
+            uiSystem.update(registry, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
         }
 
-        SDL_GL_SwapWindow(window);
+        windowManager.swapBuffers();
     }
 
-    // Cleanup
+    // Cleanup (WindowManager handles SDL/GL cleanup automatically)
     uiSystem.cleanup();
     axes.cleanup();
-    SDL_GL_DestroyContext(glContext);
-    SDL_DestroyWindow(window);
-    TTF_Quit();
-    SDL_Quit();
 
     return 0;
 }
