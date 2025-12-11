@@ -22,7 +22,8 @@ public:
 
     void render(int screenWidth, int screenHeight, float playerYaw, FontManager& fontManager, TextCache& textCache,
                 const glm::vec3& playerPos = glm::vec3(0.0f), const std::vector<glm::vec3>& markerPositions = {},
-                const std::vector<std::pair<glm::vec2, glm::vec2>>& buildingFootprints = {}) {
+                const std::vector<std::pair<glm::vec2, glm::vec2>>& buildingFootprints = {},
+                const std::vector<glm::vec3>& monsterPositions = {}) {
         glm::mat4 projection = glm::ortho(0.0f, (float)screenWidth, 0.0f, (float)screenHeight);
 
         float radius = 80.0f;
@@ -45,6 +46,9 @@ public:
 
         // Draw building rectangles (before player dot so they appear behind)
         renderBuildingFootprints(projection, center, radius, playerPos, playerYaw, buildingFootprints);
+
+        // Draw monster dots (red) before entity markers
+        renderMonsterDots(projection, center, radius, playerPos, playerYaw, monsterPositions);
 
         // Draw entity markers (X markers)
         renderEntityMarkers(projection, center, radius, playerPos, playerYaw, markerPositions, fontManager, textCache);
@@ -365,6 +369,61 @@ private:
 
             m_textShader.setVec2("uPosition", pos);
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+        }
+
+        glBindVertexArray(0);
+    }
+
+    // Render monster dots as red circles on minimap
+    void renderMonsterDots(const glm::mat4& projection, const glm::vec2& center, float radius,
+                           const glm::vec3& playerPos, float playerYaw, const std::vector<glm::vec3>& monsterPositions) {
+        if (monsterPositions.empty()) return;
+
+        float mapScale = radius / MINIMAP_WORLD_RADIUS;
+        float rotationRad = glm::radians(-playerYaw);
+        float cosR = std::cos(rotationRad);
+        float sinR = std::sin(rotationRad);
+
+        float dotRadius = 4.0f;  // Smaller than player dot
+
+        m_markerShader.use();
+        m_markerShader.setMat4("uProjection", projection);
+        m_markerShader.setFloat("uRadius", dotRadius);
+        m_markerShader.setVec4("uColor", glm::vec4(1.0f, 0.2f, 0.2f, 1.0f));  // Bright red
+
+        glBindVertexArray(m_vao);
+
+        for (const auto& worldPos : monsterPositions) {
+            // Calculate relative position from player
+            float relX = worldPos.x - playerPos.x;
+            float relZ = worldPos.z - playerPos.z;
+
+            // Skip if too far from minimap view
+            float distSq = relX * relX + relZ * relZ;
+            if (distSq > MINIMAP_WORLD_RADIUS * MINIMAP_WORLD_RADIUS) continue;
+
+            // Rotate to align with player view direction
+            float rotatedX = relX * cosR + relZ * sinR;
+            float rotatedZ = -relX * sinR + relZ * cosR;
+
+            // Scale to minimap coordinates
+            float mapX = center.x + rotatedX * mapScale;
+            float mapY = center.y - rotatedZ * mapScale;
+
+            // Check if within minimap circle
+            float dx = mapX - center.x;
+            float dy = mapY - center.y;
+            float dotDist = std::sqrt(dx * dx + dy * dy);
+
+            if (dotDist > radius - dotRadius) {
+                // Clamp to edge of minimap
+                float scale = (radius - dotRadius) / dotDist;
+                mapX = center.x + dx * scale;
+                mapY = center.y + dy * scale;
+            }
+
+            m_markerShader.setVec2("uCenter", glm::vec2(mapX, mapY));
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         }
 
         glBindVertexArray(0);

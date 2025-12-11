@@ -11,6 +11,7 @@ namespace GameConfig {
 // Window
 inline int& WINDOW_WIDTH = CONFIG.windowWidth;
 inline int& WINDOW_HEIGHT = CONFIG.windowHeight;
+inline bool& WINDOW_FULLSCREEN = CONFIG.windowFullscreen;
 inline std::string& WINDOW_TITLE = CONFIG.windowTitle;
 
 // Graphics
@@ -75,6 +76,9 @@ inline float& CINEMATIC_DURATION = CONFIG.cinematicDuration;
 inline float& CINEMATIC_MOTION_BLUR = CONFIG.cinematicMotionBlur;
 inline float& INTRO_CHARACTER_YAW = CONFIG.introCharacterYaw;
 inline glm::vec3& INTRO_CHARACTER_POS = CONFIG.introCharacterPos;
+
+// Death cinematic
+static constexpr float DEATH_CINEMATIC_DURATION = 2.5f;  // seconds
 
 // FING Building position
 inline glm::vec3& FING_BUILDING_POS = CONFIG.fingBuildingPos;

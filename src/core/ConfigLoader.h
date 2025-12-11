@@ -11,6 +11,7 @@ struct GameSettings {
     // Window
     int windowWidth = 1280;
     int windowHeight = 720;
+    bool windowFullscreen = false;
     std::string windowTitle = "fing-eternauta";
 
     // Graphics
@@ -198,6 +199,7 @@ private:
         if (!elem) return;
         s.windowWidth = getIntAttr(elem, "width", s.windowWidth);
         s.windowHeight = getIntAttr(elem, "height", s.windowHeight);
+        s.windowFullscreen = getBoolAttr(elem, "fullscreen", s.windowFullscreen);
         s.windowTitle = getStringAttr(elem, "title", s.windowTitle);
     }
 

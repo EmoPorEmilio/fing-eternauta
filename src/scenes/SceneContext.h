@@ -26,6 +26,7 @@ class FreeCameraSystem;
 class BuildingCuller;
 class Shader;
 class RenderPipeline;
+class MonsterManager;
 struct AxisRenderer;
 struct Mesh;
 struct MeshGroup;
@@ -81,6 +82,7 @@ struct SceneContext {
     Shader* toonPostShader = nullptr;
     Shader* blitShader = nullptr;
     Shader* snowShader = nullptr;
+    Shader* radialBlurShader = nullptr;
 
     // Textures
     GLuint snowTexture = 0;
@@ -119,6 +121,13 @@ struct SceneContext {
     // NPC entities (for dancing near FING)
     std::vector<Entity> npcs;
 
+    // Monster entity (debug - single monster for testing)
+    Entity monster = NULL_ENTITY;
+    bool monsterFrenzy = false;  // When true, monster speed is 10x
+
+    // Monster system
+    MonsterManager* monsterManager = nullptr;
+
     // FING building data for LOD and collision
     MeshGroup* fingHighDetail = nullptr;
     MeshGroup* fingLowDetail = nullptr;
@@ -141,6 +150,10 @@ struct SceneContext {
     GLuint snowInstanceVBO = 0;
     int snowParticleCount = 0;
 
+    // Danger zone rendering (monster detection radius)
+    Shader* dangerZoneShader = nullptr;
+    GLuint dangerZoneVAO = 0;
+
     // Light direction
     glm::vec3 lightDir;
 
@@ -150,6 +163,7 @@ struct SceneContext {
     // Menu UI entities
     Entity menuOption1 = NULL_ENTITY;
     Entity menuOption2 = NULL_ENTITY;
+    Entity menuOption3 = NULL_ENTITY;  // EXIT option
     Entity sprintHint = NULL_ENTITY;
     Entity godModeHint = NULL_ENTITY;
 
@@ -165,4 +179,10 @@ struct SceneContext {
     // Intro text entities and content
     std::vector<Entity>* introTextEntities = nullptr;
     const std::vector<std::string>* introTexts = nullptr;
+
+    // Death screen UI
+    Entity youDiedText = NULL_ENTITY;
+
+    // Death cinematic data
+    float deathCinematicDistance = 0.0f;  // Distance from monster when chase started
 };

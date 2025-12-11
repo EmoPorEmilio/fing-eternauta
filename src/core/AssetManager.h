@@ -29,7 +29,9 @@ enum class AssetShader {
     ToonPost,
     Blit,
     Overlay,
-    SolidOverlay
+    SolidOverlay,
+    DangerZone,
+    RadialBlur
 };
 
 // Render target collection (FBOs + attachments)
@@ -72,6 +74,9 @@ struct PrimitiveVAOs {
 
     GLuint overlayVAO = 0;
     GLuint overlayVBO = 0;
+
+    GLuint dangerZoneVAO = 0;
+    GLuint dangerZoneVBO = 0;
 };
 
 class AssetManager {
@@ -120,6 +125,8 @@ public:
         if (m_primitiveVAOs.sunVBO) glDeleteBuffers(1, &m_primitiveVAOs.sunVBO);
         if (m_primitiveVAOs.overlayVAO) glDeleteVertexArrays(1, &m_primitiveVAOs.overlayVAO);
         if (m_primitiveVAOs.overlayVBO) glDeleteBuffers(1, &m_primitiveVAOs.overlayVBO);
+        if (m_primitiveVAOs.dangerZoneVAO) glDeleteVertexArrays(1, &m_primitiveVAOs.dangerZoneVAO);
+        if (m_primitiveVAOs.dangerZoneVBO) glDeleteBuffers(1, &m_primitiveVAOs.dangerZoneVBO);
         m_primitiveVAOs = {};
 
         // Render target FBOs and attachments
@@ -222,6 +229,8 @@ private:
         m_shaders[AssetShader::Blit].loadFromFiles("shaders/fullscreen.vert", "shaders/blit.frag");
         m_shaders[AssetShader::Overlay].loadFromFiles("shaders/shadertoy_overlay.vert", "shaders/shadertoy_overlay.frag");
         m_shaders[AssetShader::SolidOverlay].loadFromFiles("shaders/solid_overlay.vert", "shaders/solid_overlay.frag");
+        m_shaders[AssetShader::DangerZone].loadFromFiles("shaders/danger_zone.vert", "shaders/danger_zone.frag");
+        m_shaders[AssetShader::RadialBlur].loadFromFiles("shaders/fullscreen.vert", "shaders/radial_blur.frag");
     }
 
     // === Model loading ===
@@ -232,6 +241,7 @@ private:
         m_models["comet"] = loadGLB("assets/comet.glb");
         m_models["military"] = loadGLB("assets/military.glb");
         m_models["scientist"] = loadGLB("assets/scientist.glb");
+        m_models["monster"] = loadGLB("assets/monster.glb");
     }
 
     // === Primitive VAO creation ===
@@ -301,6 +311,23 @@ private:
         glBindBuffer(GL_ARRAY_BUFFER, m_primitiveVAOs.overlayVBO);
         glBufferData(GL_ARRAY_BUFFER, sizeof(overlayQuad), overlayQuad, GL_STATIC_DRAW);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glBindVertexArray(0);
+
+        // Danger zone quad VAO (unit quad in XZ plane, centered at origin)
+        float dangerZoneQuad[] = {
+            // Position (X, Y, Z) - Y=0, extends from -1 to 1 in X and Z
+            -1.0f, 0.0f, -1.0f,
+             1.0f, 0.0f, -1.0f,
+            -1.0f, 0.0f,  1.0f,
+             1.0f, 0.0f,  1.0f
+        };
+        glGenVertexArrays(1, &m_primitiveVAOs.dangerZoneVAO);
+        glGenBuffers(1, &m_primitiveVAOs.dangerZoneVBO);
+        glBindVertexArray(m_primitiveVAOs.dangerZoneVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, m_primitiveVAOs.dangerZoneVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(dangerZoneQuad), dangerZoneQuad, GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
         glEnableVertexAttribArray(0);
         glBindVertexArray(0);
     }

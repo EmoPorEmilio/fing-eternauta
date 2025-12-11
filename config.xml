@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <GameConfig>
-    <Window width="1280" height="720" title="El Eternauta - FING"/>
+    <Window width="1920" height="1080" fullscreen="yes" title="El Eternauta - FING"/>
 
     <Graphics shadowMapSize="4096" shadowOrthoSize="150.0"
               shadowNear="1.0" shadowFar="400.0" shadowDistance="150.0"/>

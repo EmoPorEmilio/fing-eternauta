@@ -20,6 +20,7 @@ public:
         // Show menu UI
         ctx.registry->getUIText(ctx.menuOption1)->visible = true;
         ctx.registry->getUIText(ctx.menuOption2)->visible = true;
+        ctx.registry->getUIText(ctx.menuOption3)->visible = true;
 
         // Update colors based on selection
         updateMenuColors(ctx);
@@ -29,17 +30,24 @@ public:
     }
 
     void update(SceneContext& ctx) override {
-        // Menu navigation
-        if (ctx.input.upPressed || ctx.input.downPressed) {
-            ctx.gameState->menuSelection = 1 - ctx.gameState->menuSelection;
+        // Menu navigation (3 options: 0=PLAY, 1=GOD MODE, 2=EXIT)
+        if (ctx.input.upPressed) {
+            ctx.gameState->menuSelection = (ctx.gameState->menuSelection + 2) % 3;  // Wrap up
+            updateMenuColors(ctx);
+        }
+        if (ctx.input.downPressed) {
+            ctx.gameState->menuSelection = (ctx.gameState->menuSelection + 1) % 3;  // Wrap down
             updateMenuColors(ctx);
         }
 
         if (ctx.input.enterPressed) {
             if (ctx.gameState->menuSelection == 0) {
                 ctx.sceneManager->switchTo(SceneType::IntroText);
-            } else {
+            } else if (ctx.gameState->menuSelection == 1) {
                 ctx.sceneManager->switchTo(SceneType::GodMode);
+            } else {
+                // Exit the game
+                ctx.gameState->shouldQuit = true;
             }
         }
     }
@@ -98,6 +106,7 @@ public:
         // Hide menu UI
         ctx.registry->getUIText(ctx.menuOption1)->visible = false;
         ctx.registry->getUIText(ctx.menuOption2)->visible = false;
+        ctx.registry->getUIText(ctx.menuOption3)->visible = false;
     }
 
 private:
@@ -107,9 +116,11 @@ private:
     void updateMenuColors(SceneContext& ctx) {
         auto* text1 = ctx.registry->getUIText(ctx.menuOption1);
         auto* text2 = ctx.registry->getUIText(ctx.menuOption2);
-        if (text1 && text2) {
+        auto* text3 = ctx.registry->getUIText(ctx.menuOption3);
+        if (text1 && text2 && text3) {
             text1->color = (ctx.gameState->menuSelection == 0) ? m_colorSelected : m_colorUnselected;
             text2->color = (ctx.gameState->menuSelection == 1) ? m_colorSelected : m_colorUnselected;
+            text3->color = (ctx.gameState->menuSelection == 2) ? m_colorSelected : m_colorUnselected;
             ctx.uiSystem->clearCache();
         }
     }

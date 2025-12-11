@@ -16,8 +16,9 @@ struct GameState {
     float snowMotionBlur = GameConfig::SNOW_DEFAULT_BLUR;
 
     // Menu state
-    int menuSelection = 0;       // Main menu: 0 = Play Game, 1 = God Mode
+    int menuSelection = 0;       // Main menu: 0 = Play Game, 1 = God Mode, 2 = Exit
     int pauseMenuSelection = 0;  // Pause menu selection index
+    bool shouldQuit = false;     // Set to true when user selects EXIT
 
     // Intro text typewriter state
     int introCurrentLine = 0;

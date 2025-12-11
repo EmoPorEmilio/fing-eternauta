@@ -44,6 +44,11 @@ public:
             return;
         }
 
+        // Toggle monster frenzy mode with F key
+        if (ctx.input.fPressed) {
+            ctx.monsterFrenzy = !ctx.monsterFrenzy;
+        }
+
         // Free camera control
         ctx.freeCameraSystem->update(*ctx.registry, ctx.dt, ctx.input.mouseX, ctx.input.mouseY);
 
@@ -67,6 +72,32 @@ public:
         // Update animations
         ctx.animationSystem->update(*ctx.registry, ctx.dt);
         ctx.skeletonSystem->update(*ctx.registry);
+
+        // Update monster movement - walk forward
+        if (ctx.monster != NULL_ENTITY) {
+            auto* monsterT = ctx.registry->getTransform(ctx.monster);
+            auto* monsterAnim = ctx.registry->getAnimation(ctx.monster);
+            if (monsterT) {
+                // Frenzy mode multiplier
+                float speedMultiplier = ctx.monsterFrenzy ? 10.0f : 1.0f;
+
+                // Monster is rotated 90 around X, then 180 around Y
+                // After these rotations, forward direction in world space is (-X, 0, -Z) or toward origin
+                // Calculate forward from rotation quaternion
+                glm::vec3 forward = monsterT->rotation * glm::vec3(0.0f, 1.0f, 0.0f);  // Model's Y is forward after X rotation
+                forward.y = 0.0f;  // Keep movement on ground plane
+                if (glm::length(forward) > 0.001f) {
+                    forward = glm::normalize(forward);
+                }
+                float walkSpeed = 0.5f * speedMultiplier;  // units per second
+                monsterT->position += forward * walkSpeed * ctx.dt;
+
+                // Set animation speed multiplier
+                if (monsterAnim) {
+                    monsterAnim->speedMultiplier = speedMultiplier;
+                }
+            }
+        }
 
         // LOD update based on camera distance
         auto* camT = ctx.registry->getTransform(ctx.camera);

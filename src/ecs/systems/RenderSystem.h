@@ -49,6 +49,8 @@ public:
         glm::vec3 lightDir = glm::normalize(glm::vec3(0.5f, 1.0f, 0.3f));
 
         registry.forEachRenderable([&](Entity entity, Transform& transform, MeshGroup& meshGroup, Renderable& renderable) {
+            if (!renderable.visible) return;  // Skip culled entities
+
             Shader* shader = getShader(renderable.shader);
             if (!shader) return;
 
@@ -132,6 +134,8 @@ public:
         glm::vec3 lightDir = glm::normalize(glm::vec3(0.5f, 1.0f, 0.3f));
 
         registry.forEachRenderable([&](Entity entity, Transform& transform, MeshGroup& meshGroup, Renderable& renderable) {
+            if (!renderable.visible) return;  // Skip culled entities
+
             Shader* shader = getShader(renderable.shader);
             if (!shader) return;
 

@@ -14,6 +14,8 @@
 #include "../../ecs/systems/CollisionSystem.h"
 #include "../../ecs/systems/AnimationSystem.h"
 #include "../../ecs/systems/SkeletonSystem.h"
+#include "../../systems/MonsterManager.h"
+#include "../../ecs/components/MonsterData.h"
 #include "../../core/GameState.h"
 #include "../../core/GameConfig.h"
 #include "../../culling/BuildingCuller.h"
@@ -30,7 +32,7 @@ public:
         // Show sprint hint
         ctx.registry->getUIText(ctx.sprintHint)->visible = true;
 
-        // Only reset protagonist position when NOT coming from pause menu
+        // Only reset game state when NOT coming from pause menu
         if (ctx.sceneManager->previous() != SceneType::PauseMenu) {
             auto* pt = ctx.registry->getTransform(ctx.protagonist);
             if (pt) {
@@ -39,6 +41,19 @@ public:
             auto* pf = ctx.registry->getFacingDirection(ctx.protagonist);
             if (pf) {
                 pf->yaw = 225.0f;
+            }
+
+            // Reset protagonist animation to idle
+            auto* anim = ctx.registry->getAnimation(ctx.protagonist);
+            if (anim) {
+                anim->clipIndex = 0;  // Idle animation
+                anim->time = 0.0f;
+                anim->speedMultiplier = 1.0f;
+            }
+
+            // Reset all monsters to their patrol positions
+            if (ctx.monsterManager) {
+                ctx.monsterManager->resetAll();
             }
         }
     }
@@ -64,8 +79,20 @@ public:
         ctx.animationSystem->update(*ctx.registry, ctx.dt);
         ctx.skeletonSystem->update(*ctx.registry);
 
-        // LOD updates
+        // Update monster AI
         auto* protagonistT = ctx.registry->getTransform(ctx.protagonist);
+        if (ctx.monsterManager && protagonistT) {
+            MonsterManager::UpdateResult monsterResult = ctx.monsterManager->update(ctx.dt, protagonistT->position);
+
+            // Check if monster started chasing - trigger death cinematic
+            if (monsterResult.chaseStarted) {
+                ctx.deathCinematicDistance = monsterResult.distanceToPlayer;
+                ctx.sceneManager->switchTo(SceneType::DeathCinematic);
+                return;
+            }
+        }
+
+        // LOD updates
         if (protagonistT && ctx.fingHighDetail && ctx.fingLowDetail) {
             RenderHelpers::updateFingLOD(*ctx.registry, *ctx.gameState, ctx.fingBuilding,
                 protagonistT->position, *ctx.fingHighDetail, *ctx.fingLowDetail, ctx.lodSwitchDistance);
@@ -143,6 +170,12 @@ public:
             ctx.snowTexture, ctx.shadowDepthTexture, ctx.planeVAO,
             GameConfig::FOG_DENSITY, GameConfig::FOG_COLOR);
 
+        // Render monster danger zones (red circles showing detection radius)
+        if (ctx.monsterManager) {
+            std::vector<glm::vec3> dangerZonePositions = ctx.monsterManager->getPositions();
+            ctx.renderPipeline->renderDangerZones(playView, projection, dangerZonePositions, MonsterData::DETECTION_RADIUS);
+        }
+
         // Render sun
         ctx.renderPipeline->renderSun(playView, projection, cameraPos);
 
@@ -167,11 +200,18 @@ public:
         if (fingBuildingT) {
             minimapMarkers.push_back(fingBuildingT->position);
         }
+
+        // Get monster positions for minimap
+        std::vector<glm::vec3> monsterPositions;
+        if (ctx.monsterManager) {
+            monsterPositions = ctx.monsterManager->getPositions();
+        }
+
         ctx.minimapSystem->render(GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
             protagonistFacing ? protagonistFacing->yaw : 0.0f,
             ctx.uiSystem->fonts(), ctx.uiSystem->textCache(),
             protagonistT ? protagonistT->position : glm::vec3(0.0f),
-            minimapMarkers, *ctx.buildingFootprints);
+            minimapMarkers, *ctx.buildingFootprints, monsterPositions);
 
         // Render UI
         ctx.uiSystem->update(*ctx.registry, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);

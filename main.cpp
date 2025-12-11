@@ -37,6 +37,9 @@
 #include "src/scenes/impl/PlayGameScene.h"
 #include "src/scenes/impl/GodModeScene.h"
 #include "src/scenes/impl/PauseMenuScene.h"
+#include "src/scenes/impl/YouDiedScene.h"
+#include "src/scenes/impl/DeathCinematicScene.h"
+#include "src/systems/MonsterManager.h"
 #include "src/procedural/BuildingGenerator.h"
 #include "src/core/GameConfig.h"
 #include "src/core/GameState.h"
@@ -84,6 +87,8 @@ int main(int argc, char* argv[]) {
     minimapSystem.init();
 
     CinematicSystem cinematicSystem;
+
+    MonsterManager monsterManager;
 
     if (!uiSystem.fonts().loadFont("oxanium", "assets/fonts/Oxanium.ttf", 28)) {
         std::cerr << "Failed to load Oxanium font" << std::endl;
@@ -266,6 +271,63 @@ int main(int argc, char* argv[]) {
         npcEntities.push_back(npc);
     }
 
+    // === Monster (debug entity near NPCs for GodMode visibility) ===
+    LoadedModel& monsterData = assetManager.getModel("monster");
+    std::cout << "=== MONSTER DEBUG ===" << std::endl;
+    std::cout << "  Meshes: " << monsterData.meshGroup.meshes.size() << std::endl;
+    std::cout << "  Has skeleton: " << (monsterData.skeleton.has_value() ? "YES" : "NO") << std::endl;
+    std::cout << "  Animation clips: " << monsterData.clips.size() << std::endl;
+    std::cout << "  Bounds valid: " << (monsterData.bounds.isValid() ? "YES" : "NO") << std::endl;
+    if (monsterData.bounds.isValid()) {
+        std::cout << "  Bounds min: (" << monsterData.bounds.min.x << ", " << monsterData.bounds.min.y << ", " << monsterData.bounds.min.z << ")" << std::endl;
+        std::cout << "  Bounds max: (" << monsterData.bounds.max.x << ", " << monsterData.bounds.max.y << ", " << monsterData.bounds.max.z << ")" << std::endl;
+        glm::vec3 size = monsterData.bounds.max - monsterData.bounds.min;
+        std::cout << "  Model size: (" << size.x << ", " << size.y << ", " << size.z << ")" << std::endl;
+    }
+
+    Entity monster = registry.create();
+    Transform monsterTransform;
+    // Position near NPCs (at 34, 0, 34) so visible in GodMode
+    monsterTransform.position = glm::vec3(32.0f, 0.005f, 34.0f);  // Raised slightly above ground
+    monsterTransform.scale = glm::vec3(4.0f);
+    // Rotate 90 around X to stand upright (model was facing up), then 180 around Y to face camera
+    glm::quat rotX = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    glm::quat rotY = glm::angleAxis(glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    monsterTransform.rotation = rotY * rotX;
+    registry.addTransform(monster, monsterTransform);
+    std::cout << "  Final scale: " << monsterTransform.scale.x << " (PLAYER_SCALE=" << GameConfig::PLAYER_SCALE << ")" << std::endl;
+
+    MeshGroup monsterMeshGroup;
+    monsterMeshGroup.meshes = monsterData.meshGroup.meshes;
+    registry.addMeshGroup(monster, std::move(monsterMeshGroup));
+
+    Renderable monsterRenderable;
+    monsterRenderable.shader = ShaderType::Skinned;
+    monsterRenderable.meshOffset = glm::vec3(0.0f, 0.0f, 0.0f);  // No offset - model is already at origin
+    registry.addRenderable(monster, monsterRenderable);
+
+    FacingDirection monsterFacing;
+    monsterFacing.yaw = 0.0f;  // Face toward origin (like NPCs)
+    registry.addFacingDirection(monster, monsterFacing);
+
+    if (monsterData.skeleton) {
+        Skeleton monsterSkeleton = *monsterData.skeleton;
+        registry.addSkeleton(monster, std::move(monsterSkeleton));
+
+        Animation monsterAnim;
+        monsterAnim.clipIndex = 0;  // First animation clip
+        monsterAnim.playing = true;
+        monsterAnim.time = 0.0f;
+        monsterAnim.clips = monsterData.clips;
+        registry.addAnimation(monster, monsterAnim);
+
+        std::cout << "Monster entity created with " << monsterData.clips.size() << " animation clips" << std::endl;
+    }
+
+    // Initialize monster manager and spawn AI monsters
+    monsterManager.init(&registry, &assetManager);
+    monsterManager.spawnAll(0.12f, 54321);  // 12% density, ~300 monsters in 50x50 area
+
     // Game state - all runtime variables in one place
     GameState gameState;
 
@@ -389,7 +451,7 @@ int main(int argc, char* argv[]) {
     menuText1.fontId = "oxanium_large";
     menuText1.fontSize = 48;
     menuText1.anchor = AnchorPoint::Center;
-    menuText1.offset = glm::vec2(0.0f, -30.0f);
+    menuText1.offset = glm::vec2(0.0f, -60.0f);
     menuText1.horizontalAlign = HorizontalAlign::Center;
     menuText1.color = glm::vec4(255.0f, 255.0f, 255.0f, 255.0f);
     menuText1.visible = false;
@@ -401,11 +463,23 @@ int main(int argc, char* argv[]) {
     menuText2.fontId = "oxanium_large";
     menuText2.fontSize = 48;
     menuText2.anchor = AnchorPoint::Center;
-    menuText2.offset = glm::vec2(0.0f, 30.0f);
+    menuText2.offset = glm::vec2(0.0f, 0.0f);
     menuText2.horizontalAlign = HorizontalAlign::Center;
     menuText2.color = glm::vec4(128.0f, 128.0f, 128.0f, 255.0f);
     menuText2.visible = false;
     registry.addUIText(menuOption2, menuText2);
+
+    Entity menuOption3 = registry.create();
+    UIText menuText3;
+    menuText3.text = "EXIT";
+    menuText3.fontId = "oxanium_large";
+    menuText3.fontSize = 48;
+    menuText3.anchor = AnchorPoint::Center;
+    menuText3.offset = glm::vec2(0.0f, 60.0f);
+    menuText3.horizontalAlign = HorizontalAlign::Center;
+    menuText3.color = glm::vec4(128.0f, 128.0f, 128.0f, 255.0f);
+    menuText3.visible = false;
+    registry.addUIText(menuOption3, menuText3);
 
     // In-game UI
     Entity sprintHint = registry.create();
@@ -432,6 +506,19 @@ int main(int argc, char* argv[]) {
     godModeText.color = glm::vec4(255.0f, 255.0f, 255.0f, 255.0f);
     godModeText.visible = false;
     registry.addUIText(godModeHint, godModeText);
+
+    // Death screen UI
+    Entity youDiedText = registry.create();
+    UIText youDiedTextData;
+    youDiedTextData.text = "YOU DIED";
+    youDiedTextData.fontId = "oxanium_large";
+    youDiedTextData.fontSize = 48;  // Must match the loaded font size
+    youDiedTextData.anchor = AnchorPoint::Center;
+    youDiedTextData.offset = glm::vec2(0.0f, 0.0f);
+    youDiedTextData.horizontalAlign = HorizontalAlign::Center;
+    youDiedTextData.color = glm::vec4(255.0f, 50.0f, 50.0f, 255.0f);  // Bright red
+    youDiedTextData.visible = false;
+    registry.addUIText(youDiedText, youDiedTextData);
 
     // Pause menu UI
     Entity pauseFogToggle = registry.create();
@@ -792,6 +879,8 @@ int main(int argc, char* argv[]) {
     sceneManager.registerScene(SceneType::PlayGame, std::make_unique<PlayGameScene>());
     sceneManager.registerScene(SceneType::GodMode, std::make_unique<GodModeScene>());
     sceneManager.registerScene(SceneType::PauseMenu, std::make_unique<PauseMenuScene>());
+    sceneManager.registerScene(SceneType::DeathCinematic, std::make_unique<DeathCinematicScene>());
+    sceneManager.registerScene(SceneType::YouDied, std::make_unique<YouDiedScene>());
 
     // Create scene context with all shared resources
     SceneContext sceneCtx;
@@ -869,6 +958,7 @@ int main(int argc, char* argv[]) {
     sceneCtx.camera = camera;
     sceneCtx.fingBuilding = fingBuilding;
     sceneCtx.npcs = npcEntities;
+    sceneCtx.monster = monster;
 
     // FING building LOD
     sceneCtx.fingHighDetail = &fingHighDetail;
@@ -893,6 +983,13 @@ int main(int argc, char* argv[]) {
     sceneCtx.snowInstanceVBO = snowInstanceVBO;
     sceneCtx.snowParticleCount = snowParticleCount;
 
+    // Danger zone rendering
+    sceneCtx.dangerZoneShader = assetManager.getShader(AssetShader::DangerZone);
+    sceneCtx.dangerZoneVAO = assetManager.primitiveVAOs().dangerZoneVAO;
+
+    // Radial blur for death cinematic
+    sceneCtx.radialBlurShader = assetManager.getShader(AssetShader::RadialBlur);
+
     // Light
     sceneCtx.lightDir = lightDir;
 
@@ -902,6 +999,7 @@ int main(int argc, char* argv[]) {
     // UI entities
     sceneCtx.menuOption1 = menuOption1;
     sceneCtx.menuOption2 = menuOption2;
+    sceneCtx.menuOption3 = menuOption3;
     sceneCtx.sprintHint = sprintHint;
     sceneCtx.godModeHint = godModeHint;
     sceneCtx.pauseFogToggle = pauseFogToggle;
@@ -915,6 +1013,12 @@ int main(int argc, char* argv[]) {
     // Intro text
     sceneCtx.introTextEntities = &introTextEntities;
     sceneCtx.introTexts = &introTexts;
+
+    // Death screen
+    sceneCtx.youDiedText = youDiedText;
+
+    // Monster system
+    sceneCtx.monsterManager = &monsterManager;
 
     // Initialize render pipeline (must be after all context fields are set)
     RenderPipeline renderPipeline;
@@ -934,7 +1038,7 @@ int main(int argc, char* argv[]) {
 
         // Poll input events
         InputState input = inputSystem.pollEvents();
-        running = !input.quit;
+        running = !input.quit && !gameState.shouldQuit;
 
         // Update context with per-frame data
         sceneCtx.input = input;

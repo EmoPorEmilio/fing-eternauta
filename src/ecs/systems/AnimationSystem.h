@@ -15,7 +15,7 @@ public:
 
             const AnimationClip& clip = anim.clips[anim.clipIndex];
 
-            anim.time += dt;
+            anim.time += dt * anim.speedMultiplier;
             if (clip.duration > 0.0f) {
                 anim.time = fmod(anim.time, clip.duration);
             }

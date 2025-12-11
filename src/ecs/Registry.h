@@ -12,6 +12,7 @@
 #include "components/FollowTarget.h"
 #include "components/FacingDirection.h"
 #include "components/UIText.h"
+#include "components/MonsterData.h"
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -40,6 +41,7 @@ public:
         m_followTargets.erase(e);
         m_facingDirections.erase(e);
         m_uiTexts.erase(e);
+        m_monsterDatas.erase(e);
     }
 
     bool isAlive(Entity e) const {
@@ -60,6 +62,7 @@ public:
     bool hasFollowTarget(Entity e) const { return m_followTargets.count(e) > 0; }
     bool hasFacingDirection(Entity e) const { return m_facingDirections.count(e) > 0; }
     bool hasUIText(Entity e) const { return m_uiTexts.count(e) > 0; }
+    bool hasMonsterData(Entity e) const { return m_monsterDatas.count(e) > 0; }
 
     // Transform
     Transform& addTransform(Entity e, Transform t = {}) {
@@ -191,6 +194,16 @@ public:
         return it != m_uiTexts.end() ? &it->second : nullptr;
     }
 
+    // MonsterData
+    MonsterData& addMonsterData(Entity e, MonsterData md = {}) {
+        m_monsterDatas[e] = md;
+        return m_monsterDatas[e];
+    }
+    MonsterData* getMonsterData(Entity e) {
+        auto it = m_monsterDatas.find(e);
+        return it != m_monsterDatas.end() ? &it->second : nullptr;
+    }
+
     // Iteration helpers
     template<typename Func>
     void forEachRenderable(Func&& func) {
@@ -301,6 +314,17 @@ public:
         }
     }
 
+    template<typename Func>
+    void forEachMonster(Func&& func) {
+        for (auto& [entity, monsterData] : m_monsterDatas) {
+            auto* transform = getTransform(entity);
+            auto* animation = getAnimation(entity);
+            if (transform) {
+                func(entity, *transform, monsterData, animation);
+            }
+        }
+    }
+
 private:
     Entity m_nextId = 0;
     std::unordered_set<Entity> m_alive;
@@ -317,4 +341,5 @@ private:
     std::unordered_map<Entity, FollowTarget> m_followTargets;
     std::unordered_map<Entity, FacingDirection> m_facingDirections;
     std::unordered_map<Entity, UIText> m_uiTexts;
+    std::unordered_map<Entity, MonsterData> m_monsterDatas;
 };

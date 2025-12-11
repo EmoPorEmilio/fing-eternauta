@@ -9,6 +9,7 @@
 #include "../ecs/Registry.h"
 #include "../ecs/components/Mesh.h"
 #include "../ecs/components/Skeleton.h"
+#include "../systems/MonsterManager.h"
 
 // Forward declaration to avoid circular include
 struct SceneContext;
@@ -31,7 +32,8 @@ public:
     // ==================== Post-Processing ====================
 
     void applyToonPostProcess();
-    void applyMotionBlur(const glm::mat4& currentVP, glm::mat4& prevVP, bool& initialized);
+    void applyMotionBlur(const glm::mat4& currentVP, glm::mat4& prevVP, bool& initialized, float blurStrengthOverride = -1.0f);
+    void applyRadialBlur(float blurStrength);  // For death cinematic - works without camera movement
     void finalResolveAndBlit();
 
     // ==================== Common Rendering Helpers ====================
@@ -44,6 +46,8 @@ public:
     void renderComets(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
     void renderSun(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
     void renderSnow(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& playerPos);
+    void renderDangerZones(const glm::mat4& view, const glm::mat4& projection,
+                           const std::vector<glm::vec3>& monsterPositions, float radius);
 
     // ==================== Debug ====================
     void renderShadowMapDebug();
@@ -102,7 +106,7 @@ inline void RenderPipeline::applyToonPostProcess() {
     glEnable(GL_DEPTH_TEST);
 }
 
-inline void RenderPipeline::applyMotionBlur(const glm::mat4& currentVP, glm::mat4& prevVP, bool& initialized) {
+inline void RenderPipeline::applyMotionBlur(const glm::mat4& currentVP, glm::mat4& prevVP, bool& initialized, float blurStrengthOverride) {
     // Resolve cinematic MSAA to motion blur FBO
     glBindFramebuffer(GL_READ_FRAMEBUFFER, m_ctx->cinematicMsaaFBO);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_ctx->motionBlurFBO);
@@ -138,8 +142,9 @@ inline void RenderPipeline::applyMotionBlur(const glm::mat4& currentVP, glm::mat
     }
     m_ctx->motionBlurShader->setMat4("uPrevViewProjection", prevVP);
 
-    // Blur parameters
-    m_ctx->motionBlurShader->setFloat("uBlurStrength", GameConfig::CINEMATIC_MOTION_BLUR);
+    // Blur parameters - use override if provided, otherwise use config value
+    float blurStrength = (blurStrengthOverride >= 0.0f) ? blurStrengthOverride : GameConfig::CINEMATIC_MOTION_BLUR;
+    m_ctx->motionBlurShader->setFloat("uBlurStrength", blurStrength);
     m_ctx->motionBlurShader->setInt("uNumSamples", 16);
 
     glBindVertexArray(m_ctx->overlayVAO);
@@ -171,6 +176,39 @@ inline void RenderPipeline::finalResolveAndBlit() {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_ctx->resolveColorTex);
     m_ctx->blitShader->setInt("uScreenTexture", 0);
+
+    glBindVertexArray(m_ctx->overlayVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+
+    glEnable(GL_DEPTH_TEST);
+}
+
+inline void RenderPipeline::applyRadialBlur(float blurStrength) {
+    // Resolve cinematic MSAA to motion blur FBO (reusing it as intermediate)
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_ctx->cinematicMsaaFBO);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_ctx->motionBlurFBO);
+    glBlitFramebuffer(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
+                      0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
+                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+    // Apply radial blur effect to msaaFBO
+    glBindFramebuffer(GL_FRAMEBUFFER, m_ctx->msaaFBO);
+    glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_DEPTH_TEST);
+
+    m_ctx->radialBlurShader->use();
+
+    // Bind color buffer
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_ctx->motionBlurColorTex);
+    m_ctx->radialBlurShader->setInt("uColorBuffer", 0);
+
+    // Radial blur parameters
+    m_ctx->radialBlurShader->setFloat("uBlurStrength", blurStrength);
+    m_ctx->radialBlurShader->setVec2("uCenter", glm::vec2(0.5f, 0.5f));
+    m_ctx->radialBlurShader->setInt("uNumSamples", 16);
 
     glBindVertexArray(m_ctx->overlayVAO);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -252,6 +290,39 @@ inline void RenderPipeline::renderShadowCasters(const glm::mat4& lightSpaceMatri
             for (const auto& mesh : npcMG->meshes) {
                 glBindVertexArray(mesh.vao);
                 glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
+            }
+        }
+    }
+
+    // Render monster shadows (skinned meshes) - only visible monsters
+    if (m_ctx->monsterManager) {
+        for (Entity monster : m_ctx->monsterManager->getMonsterEntities()) {
+            auto* monsterR = m_ctx->registry->getRenderable(monster);
+            if (!monsterR || !monsterR->visible) continue;  // Skip culled monsters
+
+            auto* monsterT = m_ctx->registry->getTransform(monster);
+            auto* monsterMG = m_ctx->registry->getMeshGroup(monster);
+            auto* monsterSkeleton = m_ctx->registry->getSkeleton(monster);
+            if (monsterT && monsterMG) {
+                m_ctx->skinnedDepthShader->use();
+                m_ctx->skinnedDepthShader->setMat4("uLightSpaceMatrix", lightSpaceMatrix);
+
+                glm::mat4 model = monsterT->matrix();
+                if (monsterR->meshOffset != glm::vec3(0.0f)) {
+                    model = model * glm::translate(glm::mat4(1.0f), monsterR->meshOffset);
+                }
+                m_ctx->skinnedDepthShader->setMat4("uModel", model);
+
+                bool hasSkinning = monsterSkeleton && !monsterSkeleton->boneMatrices.empty();
+                m_ctx->skinnedDepthShader->setInt("uUseSkinning", hasSkinning ? 1 : 0);
+                if (hasSkinning) {
+                    m_ctx->skinnedDepthShader->setMat4Array("uBones", monsterSkeleton->boneMatrices);
+                }
+
+                for (const auto& mesh : monsterMG->meshes) {
+                    glBindVertexArray(mesh.vao);
+                    glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
+                }
             }
         }
     }
@@ -379,6 +450,32 @@ inline void RenderPipeline::renderSnow(const glm::mat4& view, const glm::mat4& p
     glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, m_ctx->snowParticleCount);
     glBindVertexArray(0);
 
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
+}
+
+inline void RenderPipeline::renderDangerZones(const glm::mat4& view, const glm::mat4& projection,
+                                               const std::vector<glm::vec3>& monsterPositions, float radius) {
+    if (!m_ctx->dangerZoneShader || m_ctx->dangerZoneVAO == 0 || monsterPositions.empty()) return;
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    m_ctx->dangerZoneShader->use();
+    m_ctx->dangerZoneShader->setMat4("uView", view);
+    m_ctx->dangerZoneShader->setMat4("uProjection", projection);
+    m_ctx->dangerZoneShader->setFloat("uRadius", radius);
+
+    glBindVertexArray(m_ctx->dangerZoneVAO);
+
+    for (const auto& pos : monsterPositions) {
+        m_ctx->dangerZoneShader->setVec3("uMonsterPos", pos);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    glBindVertexArray(0);
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
 }

@@ -32,10 +32,15 @@ public:
         SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
         SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
+        Uint64 windowFlags = SDL_WINDOW_OPENGL;
+        if (GameConfig::WINDOW_FULLSCREEN) {
+            windowFlags |= SDL_WINDOW_FULLSCREEN;
+        }
+
         m_window = SDL_CreateWindow(
             GameConfig::WINDOW_TITLE.c_str(),
             GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
-            SDL_WINDOW_OPENGL
+            windowFlags
         );
         if (!m_window) {
             std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << std::endl;

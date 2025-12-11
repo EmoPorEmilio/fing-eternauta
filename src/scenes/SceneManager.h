@@ -10,7 +10,9 @@ enum class SceneType {
     IntroCinematic,  // Camera path before gameplay starts
     PlayGame,
     GodMode,
-    PauseMenu
+    PauseMenu,
+    DeathCinematic,  // Dramatic death sequence with motion blur
+    YouDied          // Death screen when monster catches player
 };
 
 class SceneManager {
