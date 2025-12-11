@@ -5,8 +5,10 @@
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <stb_image.h>
+#include <glm/gtx/quaternion.hpp>
 #include <iostream>
 #include <vector>
+#include <cfloat>
 
 #include "src/ecs/Registry.h"
 #include "src/ecs/systems/InputSystem.h"
@@ -109,7 +111,7 @@ int main(int argc, char* argv[]) {
     // Create protagonist entity
     Entity protagonist = registry.create();
     Transform protagonistTransform;
-    protagonistTransform.position = glm::vec3(0.0f, 0.0f, 0.0f);
+    protagonistTransform.position = GameConfig::INTRO_CHARACTER_POS;
     protagonistTransform.scale = glm::vec3(GameConfig::PLAYER_SCALE);
     registry.addTransform(protagonist, protagonistTransform);
     registry.addMeshGroup(protagonist, std::move(protagonistData.meshGroup));
@@ -149,6 +151,9 @@ int main(int argc, char* argv[]) {
     MeshGroup fingHighDetail = std::move(fingBuildingData.meshGroup);
     MeshGroup fingLowDetail = std::move(fingBuildingLodData.meshGroup);
 
+    // Store model-space bounds for AABB calculation
+    ModelBounds fingModelBounds = fingBuildingData.bounds;
+
     Entity fingBuilding = registry.create();
     Transform fingTransform;
     // Move fing building outside the procedural grid (grid spans roughly -56 to +56)
@@ -160,6 +165,31 @@ int main(int argc, char* argv[]) {
     Renderable fingRenderable;
     fingRenderable.shader = ShaderType::Model;  // Non-animated model
     registry.addRenderable(fingBuilding, fingRenderable);
+
+    // Compute world-space AABB for FING building (apply rotation and scale)
+    // Model is rotated -90 around X (Y and Z swap), then scaled
+    glm::mat4 fingRotMat = glm::toMat4(fingTransform.rotation);
+    glm::vec3 fingWorldMin(FLT_MAX), fingWorldMax(-FLT_MAX);
+    // Transform all 8 corners of the model-space AABB
+    for (int i = 0; i < 8; ++i) {
+        glm::vec3 corner(
+            (i & 1) ? fingModelBounds.max.x : fingModelBounds.min.x,
+            (i & 2) ? fingModelBounds.max.y : fingModelBounds.min.y,
+            (i & 4) ? fingModelBounds.max.z : fingModelBounds.min.z
+        );
+        // Apply rotation, then scale, then translation
+        glm::vec3 rotated = glm::vec3(fingRotMat * glm::vec4(corner, 1.0f));
+        glm::vec3 scaled = rotated * fingTransform.scale;
+        glm::vec3 world = scaled + fingTransform.position;
+        fingWorldMin = glm::min(fingWorldMin, world);
+        fingWorldMax = glm::max(fingWorldMax, world);
+    }
+    // Store computed world AABB for collision and exclusion
+    glm::vec3 fingWorldHalfExtents = (fingWorldMax - fingWorldMin) * 0.5f;
+    glm::vec3 fingWorldCenter = (fingWorldMin + fingWorldMax) * 0.5f;
+    std::cout << "FING world AABB: min(" << fingWorldMin.x << ", " << fingWorldMin.y << ", " << fingWorldMin.z << ")"
+              << " max(" << fingWorldMax.x << ", " << fingWorldMax.y << ", " << fingWorldMax.z << ")"
+              << " halfExtents(" << fingWorldHalfExtents.x << ", " << fingWorldHalfExtents.y << ", " << fingWorldHalfExtents.z << ")" << std::endl;
 
     // LOD settings
     const float lodSwitchDistance = GameConfig::LOD_SWITCH_DISTANCE;
@@ -216,7 +246,18 @@ int main(int argc, char* argv[]) {
     }
 
     // Generate procedural buildings data (100x100 grid = 10,000 buildings)
-    std::vector<BuildingGenerator::BuildingData> buildingDataList = BuildingGenerator::generateBuildingGrid(12345);
+    // Exclude buildings that would overlap with FING building AABB (computed from model)
+    const float FING_PADDING = 5.0f;  // Extra padding around FING building
+    glm::vec2 fingExclusionMin(
+        fingWorldMin.x - FING_PADDING,
+        fingWorldMin.z - FING_PADDING
+    );
+    glm::vec2 fingExclusionMax(
+        fingWorldMax.x + FING_PADDING,
+        fingWorldMax.z + FING_PADDING
+    );
+    std::vector<BuildingGenerator::BuildingData> buildingDataList = BuildingGenerator::generateBuildingGrid(
+        12345, fingExclusionMin, fingExclusionMax);
     Mesh buildingBoxMesh = BuildingGenerator::createUnitBoxMesh();  // Shared mesh for all buildings
     buildingBoxMesh.texture = brickTexture;  // Apply brick texture to buildings
     buildingBoxMesh.normalMap = brickNormalMap;  // Apply brick normal map
@@ -348,12 +389,13 @@ int main(int argc, char* argv[]) {
         NurbsCurve introPath;
         // Control points for a smooth arc - start in front of character (facing them), end behind
         // Character faces toward (+X, +Z) diagonal, so "in front" is in that direction
-        glm::vec3 camStart(6.0f, 3.0f, 6.0f);  // Start: in front of character (toward FING direction)
+        // All positions are relative to character position
+        glm::vec3 camStart = characterPos + glm::vec3(6.0f, 3.0f, 6.0f);  // Start: in front of character (toward FING direction)
         introPath.addControlPoint(camStart);
-        introPath.addControlPoint(glm::vec3(3.0f, 2.5f, 0.0f));    // Sweep to the side
-        introPath.addControlPoint(glm::vec3(-2.0f, 2.0f, -2.0f));  // Moving toward final position
+        introPath.addControlPoint(characterPos + glm::vec3(3.0f, 2.5f, 0.0f));    // Sweep to the side
+        introPath.addControlPoint(characterPos + glm::vec3(-2.0f, 2.0f, -2.0f));  // Moving toward final position
         // Add intermediate point close to final to ensure smooth approach (avoid spline snap)
-        glm::vec3 nearFinal = glm::mix(glm::vec3(-2.0f, 2.0f, -2.0f), followCamEndPos, 0.7f);
+        glm::vec3 nearFinal = glm::mix(characterPos + glm::vec3(-2.0f, 2.0f, -2.0f), followCamEndPos, 0.7f);
         introPath.addControlPoint(nearFinal);
         introPath.addControlPoint(followCamEndPos);                 // End: behind character (follow camera)
 
@@ -421,7 +463,7 @@ int main(int argc, char* argv[]) {
     // Pause menu UI
     Entity pauseFogToggle = registry.create();
     UIText fogToggleText;
-    fogToggleText.text = "FOG: NO";
+    fogToggleText.text = "FOG: YES";  // Match default fogEnabled = true
     fogToggleText.fontId = "oxanium_large";
     fogToggleText.fontSize = 48;
     fogToggleText.anchor = AnchorPoint::Center;
@@ -737,41 +779,74 @@ int main(int argc, char* argv[]) {
     }
 
     // Motion blur setup for cinematic (ping-pong FBOs)
+    // GPU Gems 3 velocity-based motion blur setup
     Shader motionBlurShader;
     motionBlurShader.loadFromFiles("shaders/motion_blur.vert", "shaders/motion_blur.frag");
-    GLuint motionBlurFBO[2];      // Two FBOs for ping-pong
-    GLuint motionBlurColorTex[2]; // Color attachments
-    GLuint motionBlurDepthRBO;    // Shared depth buffer
+    GLuint motionBlurFBO;         // Single FBO for scene rendering
+    GLuint motionBlurColorTex;    // Color attachment
+    GLuint motionBlurDepthTex;    // Depth texture (not renderbuffer - we need to sample it!)
     {
-        glGenFramebuffers(2, motionBlurFBO);
-        glGenTextures(2, motionBlurColorTex);
-        glGenRenderbuffers(1, &motionBlurDepthRBO);
+        glGenFramebuffers(1, &motionBlurFBO);
+        glGenTextures(1, &motionBlurColorTex);
+        glGenTextures(1, &motionBlurDepthTex);
 
-        for (int i = 0; i < 2; ++i) {
-            glBindTexture(GL_TEXTURE_2D, motionBlurColorTex[i]);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        // Color texture
+        glBindTexture(GL_TEXTURE_2D, motionBlurColorTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-            glBindFramebuffer(GL_FRAMEBUFFER, motionBlurFBO[i]);
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, motionBlurColorTex[i], 0);
-        }
+        // Depth texture (for velocity reconstruction in motion blur shader)
+        glBindTexture(GL_TEXTURE_2D, motionBlurDepthTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-        // Shared depth renderbuffer (for scene rendering)
-        glBindRenderbuffer(GL_RENDERBUFFER, motionBlurDepthRBO);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+        // Attach to FBO
+        glBindFramebuffer(GL_FRAMEBUFFER, motionBlurFBO);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, motionBlurColorTex, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, motionBlurDepthTex, 0);
 
-        // Attach depth to both FBOs
-        for (int i = 0; i < 2; ++i) {
-            glBindFramebuffer(GL_FRAMEBUFFER, motionBlurFBO[i]);
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, motionBlurDepthRBO);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "Motion blur FBO is not complete!" << std::endl;
         }
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
     const float cinematicMotionBlurStrength = GameConfig::CINEMATIC_MOTION_BLUR;
+    const int motionBlurSamples = 16;  // Number of samples along velocity vector (more = smoother)
+    glm::mat4 prevViewProjection = glm::mat4(1.0f);  // Previous frame's view-projection matrix
+
+    // MSAA FBO for cinematic scene (resolved to motionBlurFBO before motion blur post-process)
+    GLuint cinematicMsaaFBO;
+    GLuint cinematicMsaaColorRBO;
+    GLuint cinematicMsaaDepthRBO;
+    {
+        glGenFramebuffers(1, &cinematicMsaaFBO);
+        glGenRenderbuffers(1, &cinematicMsaaColorRBO);
+        glGenRenderbuffers(1, &cinematicMsaaDepthRBO);
+
+        glBindRenderbuffer(GL_RENDERBUFFER, cinematicMsaaColorRBO);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, 4, GL_RGB16F,
+                                          GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+
+        glBindRenderbuffer(GL_RENDERBUFFER, cinematicMsaaDepthRBO);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, 4, GL_DEPTH_COMPONENT32F,
+                                          GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, cinematicMsaaFBO);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, cinematicMsaaColorRBO);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, cinematicMsaaDepthRBO);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "Cinematic MSAA FBO is not complete!" << std::endl;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
 
     // Toon/comic post-processing setup
     Shader toonPostShader;
@@ -802,6 +877,65 @@ int main(int argc, char* argv[]) {
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, toonDepthRBO);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
+
+    // MSAA anti-aliasing setup
+    // We need two FBOs: one MSAA for rendering, one regular for resolve/display
+    const int MSAA_SAMPLES = 4;
+    GLuint msaaFBO;       // Multisampled FBO for rendering
+    GLuint msaaColorRBO;  // Multisampled color renderbuffer
+    GLuint msaaDepthRBO;  // Multisampled depth renderbuffer
+    GLuint resolveFBO;    // Regular FBO for resolved result
+    GLuint resolveColorTex;  // Regular texture we can sample from
+    {
+        // Create MSAA FBO with renderbuffers (can't sample from these directly)
+        glGenFramebuffers(1, &msaaFBO);
+        glGenRenderbuffers(1, &msaaColorRBO);
+        glGenRenderbuffers(1, &msaaDepthRBO);
+
+        // MSAA color renderbuffer
+        glBindRenderbuffer(GL_RENDERBUFFER, msaaColorRBO);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, MSAA_SAMPLES, GL_RGB16F,
+                                          GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+
+        // MSAA depth renderbuffer
+        glBindRenderbuffer(GL_RENDERBUFFER, msaaDepthRBO);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, MSAA_SAMPLES, GL_DEPTH24_STENCIL8,
+                                          GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+
+        // Attach to MSAA FBO
+        glBindFramebuffer(GL_FRAMEBUFFER, msaaFBO);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, msaaColorRBO);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, msaaDepthRBO);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "MSAA FBO is not complete!" << std::endl;
+        }
+
+        // Create resolve FBO with regular texture (for sampling in post-process)
+        glGenFramebuffers(1, &resolveFBO);
+        glGenTextures(1, &resolveColorTex);
+
+        glBindTexture(GL_TEXTURE_2D, resolveColorTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT, 0, GL_RGB, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, resolveFBO);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resolveColorTex, 0);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "Resolve FBO is not complete!" << std::endl;
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        std::cout << "MSAA " << MSAA_SAMPLES << "x enabled" << std::endl;
+    }
+
+    // Simple blit shader for final output
+    Shader blitShader;
+    blitShader.loadFromFiles("shaders/fullscreen.vert", "shaders/blit.frag");
 
     // Light direction (same as in shaders)
     glm::vec3 lightDir = glm::normalize(GameConfig::LIGHT_DIR);
@@ -903,10 +1037,10 @@ int main(int argc, char* argv[]) {
             else if (scene == SceneType::IntroCinematic) {
                 inputSystem.captureMouse(false);  // No mouse control during cinematic
 
-                // Reset protagonist position (slightly above ground)
+                // Reset protagonist position
                 auto* pt = registry.getTransform(protagonist);
                 if (pt) {
-                    pt->position = glm::vec3(0.0f, 0.1f, 0.0f);
+                    pt->position = GameConfig::INTRO_CHARACTER_POS;
                 }
                 // Character faces toward FING (yaw 225 = toward +X,+Z diagonal)
                 auto* pf = registry.getFacingDirection(protagonist);
@@ -925,26 +1059,31 @@ int main(int argc, char* argv[]) {
                 inputSystem.captureMouse(true);
                 registry.getUIText(sprintHint)->visible = true;
 
-                // Reset protagonist position when starting gameplay (from intro cinematic or direct)
-                auto* pt = registry.getTransform(protagonist);
-                if (pt) {
-                    pt->position = glm::vec3(0.0f, 0.1f, 0.0f);  // Slightly above ground to avoid clipping
-                }
-                auto* pf = registry.getFacingDirection(protagonist);
-                if (pf) {
-                    pf->yaw = 225.0f;  // Face toward FING (+X,+Z diagonal)
+                // Only reset protagonist position when NOT coming from pause menu
+                // (pause menu should resume where player left off)
+                if (sceneManager.previous() != SceneType::PauseMenu) {
+                    auto* pt = registry.getTransform(protagonist);
+                    if (pt) {
+                        pt->position = GameConfig::INTRO_CHARACTER_POS;
+                    }
+                    auto* pf = registry.getFacingDirection(protagonist);
+                    if (pf) {
+                        pf->yaw = 225.0f;  // Face toward FING (+X,+Z diagonal)
+                    }
                 }
             }
             else if (scene == SceneType::GodMode) {
                 inputSystem.captureMouse(true);
                 registry.getUIText(godModeHint)->visible = true;
 
-                // Set camera to a good viewing position
-                auto* ct = registry.getTransform(camera);
-                if (ct) {
-                    ct->position = glm::vec3(5.0f, 3.0f, 5.0f);
+                // Only reset camera position when NOT coming from pause menu
+                if (sceneManager.previous() != SceneType::PauseMenu) {
+                    auto* ct = registry.getTransform(camera);
+                    if (ct) {
+                        ct->position = glm::vec3(5.0f, 3.0f, 5.0f);
+                    }
+                    freeCameraSystem.setPosition(glm::vec3(5.0f, 3.0f, 5.0f), -45.0f, -15.0f);
                 }
-                freeCameraSystem.setPosition(glm::vec3(5.0f, 3.0f, 5.0f), -45.0f, -15.0f);
             }
             else if (scene == SceneType::PauseMenu) {
                 inputSystem.captureMouse(false);
@@ -1158,6 +1297,10 @@ int main(int argc, char* argv[]) {
             glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
             glClear(GL_DEPTH_BUFFER_BIT);
 
+            // Update shadow casters based on light frustum (not camera frustum!)
+            // This ensures buildings behind camera still cast shadows
+            buildingCuller.updateShadowCasters(lightSpaceMatrix, cameraPos, BUILDING_MAX_RENDER_DISTANCE);
+
             // Render buildings to shadow map using instanced rendering
             buildingCuller.renderShadows(buildingBoxMesh, depthInstancedShader, lightSpaceMatrix);
 
@@ -1179,10 +1322,12 @@ int main(int argc, char* argv[]) {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
 
-            // === RENDER CINEMATIC SCENE TO FBO FOR MOTION BLUR ===
-            // Determine which FBO to render to (the one that's NOT the previous frame)
-            int writeIdx = 1 - gameState.motionBlurPingPong;
-            glBindFramebuffer(GL_FRAMEBUFFER, motionBlurFBO[writeIdx]);
+            // === RENDER CINEMATIC SCENE TO MSAA FBO ===
+            // Compute current view-projection matrix for motion blur
+            glm::mat4 currentViewProjection = projection * cinematicView;
+
+            // Render to MSAA FBO for anti-aliased geometry
+            glBindFramebuffer(GL_FRAMEBUFFER, cinematicMsaaFBO);
             glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
 
             glClearColor(0.2f, 0.2f, 0.22f, 1.0f);  // Dark gray sky
@@ -1268,45 +1413,55 @@ int main(int argc, char* argv[]) {
                 glEnable(GL_DEPTH_TEST);
             }
 
-            // === MOTION BLUR POST-PROCESS ===
-            // Step 1: Blend current frame with previous accumulated frame, write to the OTHER FBO
-            int readIdx = gameState.motionBlurPingPong;  // Previous accumulated frame
-            int accumIdx = writeIdx;            // Where we just rendered current frame
+            // === RESOLVE MSAA TO MOTION BLUR FBO ===
+            // The motion blur shader needs to sample the texture, so resolve MSAA first
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, cinematicMsaaFBO);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, motionBlurFBO);
+            glBlitFramebuffer(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
+                              0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
+                              GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
 
-            // We need a third pass: blend into readIdx (the old accumulation buffer)
-            // Actually simpler: just blend and display, but ALSO write to accumulation
-
-            // First, copy the blended result to screen
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            // === GPU GEMS VELOCITY-BASED MOTION BLUR POST-PROCESS ===
+            // Render motion-blurred result to MSAA FBO (for final resolve)
+            glBindFramebuffer(GL_FRAMEBUFFER, msaaFBO);
             glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             glDisable(GL_DEPTH_TEST);
 
             motionBlurShader.use();
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, motionBlurColorTex[accumIdx]);  // Current frame we just rendered
-            motionBlurShader.setInt("uCurrentFrame", 0);
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, motionBlurColorTex[readIdx]);  // Previous accumulated frame
-            motionBlurShader.setInt("uPreviousFrame", 1);
 
-            // On first frame, don't blend with previous (it's garbage)
-            float blendFactor = gameState.motionBlurInitialized ? cinematicMotionBlurStrength : 0.0f;
-            motionBlurShader.setFloat("uBlendFactor", blendFactor);
+            // Bind color buffer (scene we just rendered)
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, motionBlurColorTex);
+            motionBlurShader.setInt("uColorBuffer", 0);
+
+            // Bind depth buffer (for world position reconstruction)
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, motionBlurDepthTex);
+            motionBlurShader.setInt("uDepthBuffer", 1);
+
+            // Pass matrices for velocity computation
+            motionBlurShader.setMat4("uViewProjection", currentViewProjection);
+            motionBlurShader.setMat4("uInvViewProjection", glm::inverse(currentViewProjection));
+
+            // On first frame, use current matrix as previous (no blur)
+            if (!gameState.motionBlurInitialized) {
+                prevViewProjection = currentViewProjection;
+            }
+            motionBlurShader.setMat4("uPrevViewProjection", prevViewProjection);
+
+            // Blur parameters
+            motionBlurShader.setFloat("uBlurStrength", cinematicMotionBlurStrength);
+            motionBlurShader.setInt("uNumSamples", motionBlurSamples);
 
             glBindVertexArray(overlayVAO);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-            // Step 2: Also write the blended result back to accumIdx FBO for next frame
-            glBindFramebuffer(GL_FRAMEBUFFER, motionBlurFBO[accumIdx]);
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
             glBindVertexArray(0);
+
             glEnable(GL_DEPTH_TEST);
 
-            // Swap ping-pong buffers and mark as initialized
-            gameState.motionBlurPingPong = accumIdx;
+            // Store current view-projection for next frame
+            prevViewProjection = currentViewProjection;
             gameState.motionBlurInitialized = true;
         }
         else if (currentScene == SceneType::PlayGame) {
@@ -1318,22 +1473,20 @@ int main(int argc, char* argv[]) {
             // Update gameplay systems
             cameraOrbitSystem.update(registry, input.mouseX, input.mouseY);
 
-            // Create AABB for FING building (approximate bounds based on model)
+            // Create AABB for FING building (computed from model vertices)
             // Used for both player and camera collision
             auto* fingT = registry.getTransform(fingBuilding);
             AABB fingAABB;
             if (fingT) {
-                // FING building model is roughly 10x30x10 units at scale 1, scaled by 2.5
-                glm::vec3 fingHalfExtents = glm::vec3(12.5f, 37.5f, 12.5f);  // Approximate
-                glm::vec3 fingCenter = fingT->position + glm::vec3(0.0f, fingHalfExtents.y, 0.0f);
-                fingAABB = AABB::fromCenterExtents(fingCenter, fingHalfExtents);
+                // Use pre-computed world-space bounds from model loading
+                fingAABB = AABB::fromCenterExtents(fingWorldCenter, fingWorldHalfExtents);
             }
 
-            // Player movement with building collision
-            playerMovementSystem.update(registry, dt, &buildingCuller, fingT ? &fingAABB : nullptr);
+            // Player movement with building collision (no FING collision - player can walk through it)
+            playerMovementSystem.update(registry, dt, &buildingCuller, nullptr);
 
-            // Camera with collision detection
-            followCameraSystem.updateWithCollision(registry, buildingCuller, fingT ? &fingAABB : nullptr);
+            // Camera with collision detection (no FING collision)
+            followCameraSystem.updateWithCollision(registry, buildingCuller, nullptr);
 
             physicsSystem.update(registry, dt);
             collisionSystem.update(registry);
@@ -1377,6 +1530,10 @@ int main(int argc, char* argv[]) {
             glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
             glClear(GL_DEPTH_BUFFER_BIT);
 
+            // Update shadow casters based on light frustum (not camera frustum!)
+            // This ensures buildings behind camera still cast shadows
+            buildingCuller.updateShadowCasters(lightSpaceMatrix, cameraPos, BUILDING_MAX_RENDER_DISTANCE);
+
             // Render buildings to shadow map using instanced rendering
             buildingCuller.renderShadows(buildingBoxMesh, depthInstancedShader, lightSpaceMatrix);
 
@@ -1399,9 +1556,11 @@ int main(int argc, char* argv[]) {
             glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
 
             // === MAIN RENDER PASS ===
-            // If toon shading enabled, render to FBO first
+            // Render to appropriate FBO: toonFBO for toon shading, msaaFBO otherwise
             if (gameState.toonShadingEnabled) {
                 glBindFramebuffer(GL_FRAMEBUFFER, toonFBO);
+            } else {
+                glBindFramebuffer(GL_FRAMEBUFFER, msaaFBO);
             }
             glClearColor(0.2f, 0.2f, 0.22f, 1.0f);  // Dark gray sky
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -1509,8 +1668,8 @@ int main(int argc, char* argv[]) {
 
             // === TOON POST-PROCESSING ===
             if (gameState.toonShadingEnabled) {
-                // Switch back to screen
-                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                // Switch to MSAA FBO for toon output
+                glBindFramebuffer(GL_FRAMEBUFFER, msaaFBO);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
                 // Apply toon shader
@@ -1575,9 +1734,11 @@ int main(int argc, char* argv[]) {
             }
 
             // Render
-            // If toon shading enabled, render to FBO first
+            // Render to appropriate FBO: toonFBO for toon shading, msaaFBO otherwise
             if (gameState.toonShadingEnabled) {
                 glBindFramebuffer(GL_FRAMEBUFFER, toonFBO);
+            } else {
+                glBindFramebuffer(GL_FRAMEBUFFER, msaaFBO);
             }
             glClearColor(0.2f, 0.2f, 0.22f, 1.0f);  // Dark gray sky
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -1612,6 +1773,24 @@ int main(int argc, char* argv[]) {
                 glBindVertexArray(planeVAO);
                 glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
                 glBindVertexArray(0);
+
+                // Update and render buildings (GodMode)
+                buildingCuller.update(view, projection, camT->position, BUILDING_MAX_RENDER_DISTANCE);
+                {
+                    BuildingRenderParams buildingParams;
+                    buildingParams.view = view;
+                    buildingParams.projection = projection;
+                    buildingParams.lightSpaceMatrix = glm::mat4(1.0f);  // No shadows in god mode for simplicity
+                    buildingParams.lightDir = lightDir;
+                    buildingParams.viewPos = camT->position;
+                    buildingParams.texture = brickTexture;
+                    buildingParams.normalMap = brickNormalMap;
+                    buildingParams.shadowMap = 0;
+                    buildingParams.textureScale = GameConfig::BUILDING_TEXTURE_SCALE;
+                    buildingParams.fogEnabled = gameState.fogEnabled;
+                    buildingParams.shadowsEnabled = false;
+                    buildingCuller.render(buildingBoxMesh, buildingInstancedShader, buildingParams);
+                }
 
                 // Render falling comets in sky (GodMode)
                 // view and projection already defined above
@@ -1658,8 +1837,8 @@ int main(int argc, char* argv[]) {
 
             // === TOON POST-PROCESSING ===
             if (gameState.toonShadingEnabled) {
-                // Switch back to screen
-                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                // Switch to MSAA FBO for toon output
+                glBindFramebuffer(GL_FRAMEBUFFER, msaaFBO);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
                 // Apply toon shader
@@ -1768,6 +1947,36 @@ int main(int argc, char* argv[]) {
 
             // Only render UI
             uiSystem.update(registry, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+        }
+
+        // === MSAA RESOLVE + BLIT (final pass for 3D scenes) ===
+        // Resolve MSAA to regular texture, then blit to screen
+        if (currentScene == SceneType::IntroCinematic ||
+            currentScene == SceneType::PlayGame ||
+            currentScene == SceneType::GodMode) {
+            // Step 1: Resolve MSAA FBO to regular texture FBO
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, msaaFBO);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, resolveFBO);
+            glBlitFramebuffer(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
+                              0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
+                              GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
+            // Step 2: Blit resolved texture to screen
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glDisable(GL_DEPTH_TEST);
+
+            blitShader.use();
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, resolveColorTex);
+            blitShader.setInt("uScreenTexture", 0);
+
+            glBindVertexArray(overlayVAO);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glBindVertexArray(0);
+
+            glEnable(GL_DEPTH_TEST);
         }
 
         windowManager.swapBuffers();

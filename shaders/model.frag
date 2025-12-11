@@ -18,8 +18,8 @@ uniform int uTriplanarMapping;  // Use world-space UV projection
 uniform float uTextureScale;    // How many world units per texture repeat (default 4.0)
 
 // Fog parameters
-const vec3 fogColor = vec3(0.5, 0.5, 0.55);  // Gray - match snowy atmosphere
-const float fogDensity = 0.02;
+const vec3 fogColor = vec3(0.12, 0.14, 0.2);  // Dark bluish gray
+const float fogDensity = 0.004;  // Low density so FING visible at ~300 units
 const float fogDesaturation = 0.8;  // How much to desaturate at max fog
 
 out vec4 FragColor;

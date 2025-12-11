@@ -126,7 +126,11 @@ inline Mesh createUnitBoxMesh() {
 }
 
 // Generate building data for the grid
-inline std::vector<BuildingData> generateBuildingGrid(unsigned int seed = 12345) {
+// exclusionMin/exclusionMax: AABB bounds (in XZ) to exclude buildings from (with padding)
+// Set both to vec2(0) to disable exclusion
+inline std::vector<BuildingData> generateBuildingGrid(unsigned int seed,
+                                                       glm::vec2 exclusionMin,
+                                                       glm::vec2 exclusionMax) {
     std::vector<BuildingData> buildings;
     buildings.reserve(GRID_SIZE * GRID_SIZE);
 
@@ -136,6 +140,8 @@ inline std::vector<BuildingData> generateBuildingGrid(unsigned int seed = 12345)
     float offsetX = getGridOffsetX();
     float offsetZ = getGridOffsetZ();
 
+    bool hasExclusion = (exclusionMin != exclusionMax);
+
     for (int z = 0; z < GRID_SIZE; ++z) {
         for (int x = 0; x < GRID_SIZE; ++x) {
             BuildingData building;
@@ -144,6 +150,23 @@ inline std::vector<BuildingData> generateBuildingGrid(unsigned int seed = 12345)
             building.position.x = offsetX + x * BLOCK_SIZE + BUILDING_WIDTH / 2.0f;
             building.position.y = 0.0f;
             building.position.z = offsetZ + z * BLOCK_SIZE + BUILDING_DEPTH / 2.0f;
+
+            // Skip buildings within exclusion AABB (check if building overlaps exclusion zone)
+            if (hasExclusion) {
+                // Building bounds in XZ
+                float bMinX = building.position.x - BUILDING_WIDTH / 2.0f;
+                float bMaxX = building.position.x + BUILDING_WIDTH / 2.0f;
+                float bMinZ = building.position.z - BUILDING_DEPTH / 2.0f;
+                float bMaxZ = building.position.z + BUILDING_DEPTH / 2.0f;
+
+                // Check AABB overlap in XZ plane
+                bool overlapsX = (bMinX <= exclusionMax.x) && (bMaxX >= exclusionMin.x);
+                bool overlapsZ = (bMinZ <= exclusionMax.y) && (bMaxZ >= exclusionMin.y);
+
+                if (overlapsX && overlapsZ) {
+                    continue;  // Skip this building - it overlaps exclusion zone
+                }
+            }
 
             building.width = BUILDING_WIDTH;
             building.depth = BUILDING_DEPTH;

@@ -43,8 +43,9 @@ public:
             return AABB::fromCenterExtents(center, halfExtents);
         });
 
-        // Initialize instanced renderer
+        // Initialize instanced renderers (one for camera view, one for shadow pass)
         m_instancedRenderer.init(maxVisibleBuildings);
+        m_shadowInstancedRenderer.init(maxVisibleBuildings);
 
         // Print octree stats
         auto stats = m_octree.getStats();
@@ -131,11 +132,29 @@ public:
         m_instancedRenderer.render(buildingMesh, shader);
     }
 
-    // Render shadow pass for visible buildings
+    // Update shadow caster visibility - includes all buildings within shadow distance
+    // This should be called before renderShadows() to populate shadow instances
+    // Uses radius query (not camera frustum) so buildings behind camera still cast shadows
+    void updateShadowCasters(const glm::mat4& /*lightSpaceMatrix*/, const glm::vec3& cameraPos, float shadowDistance) {
+        m_shadowInstancedRenderer.beginFrame();
+        m_shadowVisibleCount = 0;
+
+        // Query all buildings within shadow distance using radius query
+        // This ensures buildings behind the camera can still cast shadows into the visible area
+        m_octree.queryRadius(cameraPos, shadowDistance, [&](const BuildingGenerator::BuildingData& building) {
+            m_shadowInstancedRenderer.addInstance(building.position,
+                glm::vec3(building.width, building.height, building.depth));
+            m_shadowVisibleCount++;
+        });
+    }
+
+    // Render shadow pass for shadow casters
     void renderShadows(const Mesh& buildingMesh, Shader& depthShader,
                        const glm::mat4& lightSpaceMatrix) {
-        m_instancedRenderer.renderShadow(buildingMesh, depthShader, lightSpaceMatrix);
+        m_shadowInstancedRenderer.renderShadow(buildingMesh, depthShader, lightSpaceMatrix);
     }
+
+    size_t getShadowCasterCount() const { return m_shadowVisibleCount; }
 
     size_t getVisibleCount() const { return m_visibleCount; }
     size_t getTotalCount() const { return m_buildings ? m_buildings->size() : 0; }
@@ -193,6 +212,8 @@ private:
     const std::vector<BuildingGenerator::BuildingData>* m_buildings = nullptr;
     Octree<BuildingGenerator::BuildingData> m_octree;
     Frustum m_frustum;
-    InstancedRenderer m_instancedRenderer;
+    InstancedRenderer m_instancedRenderer;        // For camera view pass
+    InstancedRenderer m_shadowInstancedRenderer;  // For shadow pass
     size_t m_visibleCount = 0;
+    size_t m_shadowVisibleCount = 0;
 };

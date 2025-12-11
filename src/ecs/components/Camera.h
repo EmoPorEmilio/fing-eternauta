@@ -4,8 +4,8 @@
 
 struct CameraComponent {
     float fov = 60.0f;
-    float nearPlane = 0.1f;
-    float farPlane = 500.0f;
+    float nearPlane = 0.5f;
+    float farPlane = 500.0f;   // Reasonable distance - FING is ~285 units from spawn
     bool active = true;
 
     glm::mat4 projectionMatrix(float aspect) const {

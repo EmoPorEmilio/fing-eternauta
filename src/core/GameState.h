@@ -6,7 +6,7 @@
 
 struct GameState {
     // Visual effects toggles
-    bool fogEnabled = false;
+    bool fogEnabled = true;
     bool snowEnabled = true;
     bool toonShadingEnabled = false;
 

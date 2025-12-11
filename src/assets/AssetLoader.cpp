@@ -10,6 +10,7 @@
 #include <iostream>
 #include <algorithm>
 #include <map>
+#include <utility>
 
 namespace {
 
@@ -214,8 +215,9 @@ std::vector<AnimationClip> loadAnimations(const tinygltf::Model& gltfModel, cons
     return clips;
 }
 
-MeshGroup loadMeshes(const tinygltf::Model& gltfModel, const std::vector<GLuint>& textures) {
+std::pair<MeshGroup, ModelBounds> loadMeshes(const tinygltf::Model& gltfModel, const std::vector<GLuint>& textures) {
     MeshGroup group;
+    ModelBounds bounds;
 
     for (const auto& gltfMesh : gltfModel.meshes) {
         for (const auto& primitive : gltfMesh.primitives) {
@@ -241,12 +243,17 @@ MeshGroup loadMeshes(const tinygltf::Model& gltfModel, const std::vector<GLuint>
                 int stride = bufferView.byteStride;
                 if (stride == 0) stride = getNumComponents(accessor.type) * getComponentByteSize(accessor.componentType);
 
-                // Store CPU-side positions
+                // Store CPU-side positions and compute bounds
                 vertexCount = accessor.count;
                 mesh.skinnedVertices.resize(vertexCount);
                 for (size_t i = 0; i < vertexCount; ++i) {
                     const float* v = reinterpret_cast<const float*>(dataPtr + i * stride);
-                    mesh.skinnedVertices[i].position = glm::vec3(v[0], v[1], v[2]);
+                    glm::vec3 pos(v[0], v[1], v[2]);
+                    mesh.skinnedVertices[i].position = pos;
+
+                    // Update global bounds
+                    bounds.min = glm::min(bounds.min, pos);
+                    bounds.max = glm::max(bounds.max, pos);
                 }
 
                 GLuint vbo;
@@ -415,7 +422,11 @@ MeshGroup loadMeshes(const tinygltf::Model& gltfModel, const std::vector<GLuint>
     }
 
     std::cout << "  Total meshes loaded: " << group.meshes.size() << std::endl;
-    return group;
+    if (bounds.isValid()) {
+        std::cout << "  Bounds: min(" << bounds.min.x << ", " << bounds.min.y << ", " << bounds.min.z << ")"
+                  << " max(" << bounds.max.x << ", " << bounds.max.y << ", " << bounds.max.z << ")" << std::endl;
+    }
+    return {group, bounds};
 }
 
 } // anonymous namespace
@@ -451,7 +462,10 @@ LoadedModel loadGLB(const std::string& path) {
     }
 
     result.clips = loadAnimations(gltfModel, nodeToJoint);
-    result.meshGroup = loadMeshes(gltfModel, result.textures);
+
+    auto [meshGroup, bounds] = loadMeshes(gltfModel, result.textures);
+    result.meshGroup = std::move(meshGroup);
+    result.bounds = bounds;
 
     return result;
 }

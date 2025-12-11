@@ -32,7 +32,7 @@ constexpr float PLAYER_SCALE = 0.01f;
 // Camera
 constexpr float CAMERA_FOV = 60.0f;
 constexpr float CAMERA_NEAR = 0.1f;
-constexpr float CAMERA_FAR = 100.0f;
+constexpr float CAMERA_FAR = 500.0f;  // Far enough to see FING from intro position (~285 units)
 constexpr float FOLLOW_DISTANCE = 2.2f;
 constexpr float FOLLOW_HEIGHT = 1.2f;
 constexpr float SHOULDER_OFFSET = 2.4f;
@@ -49,7 +49,7 @@ constexpr int BUILDING_RENDER_RADIUS = 3;  // Grid cells around player to render
 constexpr float BUILDING_TEXTURE_SCALE = 4.0f;  // World units per texture repeat
 
 // LOD
-constexpr float LOD_SWITCH_DISTANCE = 70.0f;
+constexpr float LOD_SWITCH_DISTANCE = 210.0f;  // 3x original for high-detail at distance
 
 // Ground
 constexpr float GROUND_SIZE = 500.0f;
@@ -62,9 +62,9 @@ constexpr float SNOW_DEFAULT_BLUR = 3.0f;
 
 // Cinematic
 constexpr float CINEMATIC_DURATION = 3.0f;
-constexpr float CINEMATIC_MOTION_BLUR = 0.85f;
+constexpr float CINEMATIC_MOTION_BLUR = 2.5f;  // Blur strength (higher = more blur)
 constexpr float INTRO_CHARACTER_YAW = 225.0f;  // Facing FING building
-inline const glm::vec3 INTRO_CHARACTER_POS = glm::vec3(0.0f, 0.1f, 0.0f);
+inline const glm::vec3 INTRO_CHARACTER_POS = glm::vec3(-120.0f, 0.1f, -120.0f);  // Far back from FING
 
 // FING Building position
 inline const glm::vec3 FING_BUILDING_POS = glm::vec3(80.0f, 10.0f, 80.0f);
