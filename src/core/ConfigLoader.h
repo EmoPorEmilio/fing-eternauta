@@ -47,7 +47,8 @@ struct GameSettings {
     float buildingMinHeight = 15.0f;
     float buildingMaxHeight = 40.0f;
     float streetWidth = 12.0f;
-    int buildingRenderRadius = 3;
+    float buildingRenderDistance = 150.0f;  // Max distance for building rendering
+    int maxVisibleBuildings = 2000;         // Max buildings to render per frame
     float buildingTextureScale = 4.0f;
 
     // LOD
@@ -82,6 +83,10 @@ struct GameSettings {
     float introLineHeight = 100.0f;
     float typewriterCharDelay = 0.04f;
     float typewriterLineDelay = 0.5f;
+
+    // Debug
+    bool showAxes = false;
+    bool showShadowMap = false;
 };
 
 // Singleton loader for game configuration from XML
@@ -124,6 +129,7 @@ public:
         parseFingBuilding(root->FirstChildElement("FingBuilding"), s);
         parseLight(root->FirstChildElement("Light"), s);
         parseUI(root->FirstChildElement("UI"), s);
+        parseDebug(root->FirstChildElement("Debug"), s);
 
         std::cout << "ConfigLoader: Loaded configuration from " << filename << std::endl;
         return true;
@@ -170,6 +176,15 @@ private:
             return result;
         }
         return defaultVal;
+    }
+
+    // Helper to get bool attribute ("true"/"false")
+    static bool getBoolAttr(TiXmlElement* elem, const char* name, bool defaultVal) {
+        if (!elem) return defaultVal;
+        const char* val = elem->Attribute(name);
+        if (!val) return defaultVal;
+        std::string s(val);
+        return s == "true" || s == "1" || s == "yes";
     }
 
     static void parseWindow(TiXmlElement* elem, GameSettings& s) {
@@ -222,7 +237,8 @@ private:
         s.buildingMinHeight = getFloatAttr(elem, "minHeight", s.buildingMinHeight);
         s.buildingMaxHeight = getFloatAttr(elem, "maxHeight", s.buildingMaxHeight);
         s.streetWidth = getFloatAttr(elem, "streetWidth", s.streetWidth);
-        s.buildingRenderRadius = getIntAttr(elem, "renderRadius", s.buildingRenderRadius);
+        s.buildingRenderDistance = getFloatAttr(elem, "renderDistance", s.buildingRenderDistance);
+        s.maxVisibleBuildings = getIntAttr(elem, "maxVisible", s.maxVisibleBuildings);
         s.buildingTextureScale = getFloatAttr(elem, "textureScale", s.buildingTextureScale);
     }
 
@@ -271,6 +287,12 @@ private:
         s.introLineHeight = getFloatAttr(elem, "introLineHeight", s.introLineHeight);
         s.typewriterCharDelay = getFloatAttr(elem, "typewriterCharDelay", s.typewriterCharDelay);
         s.typewriterLineDelay = getFloatAttr(elem, "typewriterLineDelay", s.typewriterLineDelay);
+    }
+
+    static void parseDebug(TiXmlElement* elem, GameSettings& s) {
+        if (!elem) return;
+        s.showAxes = getBoolAttr(elem, "showAxes", s.showAxes);
+        s.showShadowMap = getBoolAttr(elem, "showShadowMap", s.showShadowMap);
     }
 };
 

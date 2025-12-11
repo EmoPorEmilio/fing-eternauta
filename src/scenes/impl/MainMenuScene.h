@@ -59,13 +59,16 @@ public:
         glClearColor(0.2f, 0.2f, 0.22f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Render FING model (via render system - no buildings, just the FING entity)
+        // Render FING model with very low fog for menu backdrop
+        constexpr float menuFogDensity = 0.002f;  // Much lower than normal game fog
         ctx.renderSystem->setFogEnabled(ctx.gameState->fogEnabled);
+        ctx.renderSystem->setFogDensity(menuFogDensity);
         ctx.renderSystem->updateWithView(*ctx.registry, ctx.aspectRatio, menuView);
 
-        // Render ground plane (no buildings, no shadows)
+        // Render ground plane (no buildings, no shadows, low fog)
         RenderHelpers::renderGroundPlane(*ctx.groundShader, menuView, projection, glm::mat4(1.0f),
-            ctx.lightDir, menuCamPos, ctx.gameState->fogEnabled, false, ctx.snowTexture, 0, ctx.planeVAO);
+            ctx.lightDir, menuCamPos, ctx.gameState->fogEnabled, false, ctx.snowTexture, 0, ctx.planeVAO,
+            menuFogDensity);
 
         // Render snow overlay
         RenderHelpers::renderSnowOverlay(*ctx.overlayShader, ctx.overlayVAO, *ctx.gameState);

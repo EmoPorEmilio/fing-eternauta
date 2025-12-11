@@ -195,7 +195,7 @@ void main()
         // Use uniform density, fallback to default if not set
         float density = uFogDensity > 0.0 ? uFogDensity : 0.02;
         float desaturation = uFogDesaturation > 0.0 ? uFogDesaturation : 0.8;
-        vec3 fogCol = (uFogColor.r + uFogColor.g + uFogColor.b) > 0.0 ? uFogColor : vec3(0.5, 0.5, 0.55);
+        vec3 fogCol = (uFogColor.r + uFogColor.g + uFogColor.b) > 0.0 ? uFogColor : vec3(0.15, 0.15, 0.17);
 
         // Exponential squared fog
         float distance = length(vFragPos - uViewPos);

@@ -8,6 +8,7 @@
 #include "../Shader.h"
 #include "../ecs/Registry.h"
 #include "../ecs/components/Mesh.h"
+#include "../ecs/components/Skeleton.h"
 
 // Forward declaration to avoid circular include
 struct SceneContext;
@@ -42,6 +43,9 @@ public:
                       const glm::vec3& cometColor);
     void renderComets(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
     void renderSun(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
+
+    // ==================== Debug ====================
+    void renderShadowMapDebug();
 
 private:
     SceneContext* m_ctx = nullptr;
@@ -191,6 +195,28 @@ inline void RenderPipeline::renderShadowCasters(const glm::mat4& lightSpaceMatri
             glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
         }
     }
+
+    // Render protagonist shadow (skinned mesh)
+    auto* protagonistT = m_ctx->registry->getTransform(m_ctx->protagonist);
+    auto* protagonistMG = m_ctx->registry->getMeshGroup(m_ctx->protagonist);
+    auto* protagonistSkeleton = m_ctx->registry->getSkeleton(m_ctx->protagonist);
+    if (protagonistT && protagonistMG) {
+        m_ctx->skinnedDepthShader->use();
+        m_ctx->skinnedDepthShader->setMat4("uLightSpaceMatrix", lightSpaceMatrix);
+        m_ctx->skinnedDepthShader->setMat4("uModel", protagonistT->matrix());
+
+        // Set skinning data
+        bool hasSkinning = protagonistSkeleton && !protagonistSkeleton->boneMatrices.empty();
+        m_ctx->skinnedDepthShader->setInt("uUseSkinning", hasSkinning ? 1 : 0);
+        if (hasSkinning) {
+            m_ctx->skinnedDepthShader->setMat4Array("uBones", protagonistSkeleton->boneMatrices);
+        }
+
+        for (const auto& mesh : protagonistMG->meshes) {
+            glBindVertexArray(mesh.vao);
+            glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
+        }
+    }
 }
 
 inline void RenderPipeline::renderBuildings(const BuildingRenderParams& params) {
@@ -248,7 +274,10 @@ inline void RenderPipeline::renderComets(const glm::mat4& view, const glm::mat4&
 
 inline void RenderPipeline::renderSun(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos) {
     glm::vec3 sunWorldPos = cameraPos + m_ctx->lightDir * 400.0f;
-    glDisable(GL_DEPTH_TEST);
+
+    // Enable depth test so sun is occluded by buildings, but don't write to depth buffer
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -263,5 +292,28 @@ inline void RenderPipeline::renderSun(const glm::mat4& view, const glm::mat4& pr
     glBindVertexArray(0);
 
     glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
+}
+
+inline void RenderPipeline::renderShadowMapDebug() {
+    if (!GameConfig::SHOW_SHADOW_MAP) return;
+
+    // Draw shadow map in bottom-left corner (256x256)
+    const int debugSize = 256;
+    glViewport(10, 10, debugSize, debugSize);
+    glDisable(GL_DEPTH_TEST);
+
+    // Use blit shader to display depth texture
+    m_ctx->blitShader->use();
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_ctx->shadowDepthTexture);
+    m_ctx->blitShader->setInt("uScreenTexture", 0);
+
+    glBindVertexArray(m_ctx->overlayVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+
+    // Restore viewport
+    glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
     glEnable(GL_DEPTH_TEST);
 }

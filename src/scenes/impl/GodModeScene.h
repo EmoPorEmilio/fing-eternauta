@@ -77,9 +77,6 @@ public:
     }
 
     void render(SceneContext& ctx) override {
-        // Render to appropriate FBO
-        ctx.renderPipeline->beginMainPass(ctx.gameState->toonShadingEnabled);
-
         auto* cam = ctx.registry->getCamera(ctx.camera);
         auto* camT = ctx.registry->getTransform(ctx.camera);
         if (!cam || !camT) return;
@@ -88,38 +85,59 @@ public:
         glm::mat4 projection = cam->projectionMatrix(ctx.aspectRatio);
         glm::vec3 cameraPos = camT->position;
 
+        // Update building culling
+        ctx.buildingCuller->update(view, projection, cameraPos, ctx.buildingMaxRenderDistance);
+
+        // === SHADOW PASS ===
+        glm::mat4 lightSpaceMatrix = RenderHelpers::computeLightSpaceMatrix(cameraPos, ctx.lightDir);
+
+        ctx.renderPipeline->beginShadowPass();
+        ctx.renderPipeline->renderShadowCasters(lightSpaceMatrix, cameraPos);
+        ctx.renderPipeline->endShadowPass();
+
+        // === MAIN RENDER PASS ===
+        ctx.renderPipeline->beginMainPass(ctx.gameState->toonShadingEnabled);
+
         // Debug axes
-        if (ctx.axes) {
+        if (GameConfig::SHOW_AXES && ctx.axes) {
             glm::mat4 vp = projection * view;
             ctx.colorShader->use();
             ctx.colorShader->setMat4("uMVP", vp);
             ctx.axes->draw();
         }
 
-        // Render ECS entities
-        ctx.renderSystem->setFogEnabled(ctx.gameState->fogEnabled);
+        // Render ECS entities with shadows
+        RenderHelpers::setupRenderSystem(*ctx.renderSystem, ctx.gameState->fogEnabled, true,
+                                          ctx.shadowDepthTexture, lightSpaceMatrix);
+        ctx.renderSystem->setFogDensity(GameConfig::FOG_DENSITY);
+        ctx.renderSystem->setFogColor(GameConfig::FOG_COLOR);
         ctx.renderSystem->updateWithView(*ctx.registry, ctx.aspectRatio, view);
 
-        // Render ground plane (no shadows in god mode)
-        RenderHelpers::renderGroundPlane(*ctx.groundShader, view, projection, glm::mat4(1.0f),
-            ctx.lightDir, cameraPos, ctx.gameState->fogEnabled, false,
-            ctx.snowTexture, 0, ctx.planeVAO);
+        // Render ground plane with shadows
+        RenderHelpers::renderGroundPlane(*ctx.groundShader, view, projection, lightSpaceMatrix,
+            ctx.lightDir, cameraPos, ctx.gameState->fogEnabled, true,
+            ctx.snowTexture, ctx.shadowDepthTexture, ctx.planeVAO,
+            GameConfig::FOG_DENSITY, GameConfig::FOG_COLOR);
 
-        // Render buildings (no shadows)
-        ctx.buildingCuller->update(view, projection, cameraPos, ctx.buildingMaxRenderDistance);
+        // Render buildings with shadows
         BuildingRenderParams params;
         params.view = view;
         params.projection = projection;
-        params.lightSpaceMatrix = glm::mat4(1.0f);
+        params.lightSpaceMatrix = lightSpaceMatrix;
         params.lightDir = ctx.lightDir;
         params.viewPos = cameraPos;
         params.texture = ctx.brickTexture;
         params.normalMap = ctx.brickNormalMap;
-        params.shadowMap = 0;
+        params.shadowMap = ctx.shadowDepthTexture;
         params.textureScale = GameConfig::BUILDING_TEXTURE_SCALE;
         params.fogEnabled = ctx.gameState->fogEnabled;
-        params.shadowsEnabled = false;
+        params.shadowsEnabled = true;
+        params.fogColor = GameConfig::FOG_COLOR;
+        params.fogDensity = GameConfig::FOG_DENSITY;
         ctx.renderPipeline->renderBuildings(params);
+
+        // Render sun
+        ctx.renderPipeline->renderSun(view, projection, cameraPos);
 
         // Render comets
         ctx.renderPipeline->renderComets(view, projection, cameraPos);

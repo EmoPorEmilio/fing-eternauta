@@ -23,6 +23,7 @@ enum class AssetShader {
     Sun,
     Comet,
     Depth,
+    SkinnedDepth,
     MotionBlur,
     ToonPost,
     Blit,
@@ -213,6 +214,7 @@ private:
         m_shaders[AssetShader::Sun].loadFromFiles("shaders/sun.vert", "shaders/sun.frag");
         m_shaders[AssetShader::Comet].loadFromFiles("shaders/comet.vert", "shaders/comet.frag");
         m_shaders[AssetShader::Depth].loadFromFiles("shaders/depth.vert", "shaders/depth.frag");
+        m_shaders[AssetShader::SkinnedDepth].loadFromFiles("shaders/skinned_depth.vert", "shaders/depth.frag");
         m_shaders[AssetShader::MotionBlur].loadFromFiles("shaders/motion_blur.vert", "shaders/motion_blur.frag");
         m_shaders[AssetShader::ToonPost].loadFromFiles("shaders/toon_post.vert", "shaders/toon_post.frag");
         m_shaders[AssetShader::Blit].loadFromFiles("shaders/fullscreen.vert", "shaders/blit.frag");

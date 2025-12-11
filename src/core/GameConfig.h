@@ -47,7 +47,8 @@ inline float& BUILDING_DEPTH = CONFIG.buildingDepth;
 inline float& BUILDING_MIN_HEIGHT = CONFIG.buildingMinHeight;
 inline float& BUILDING_MAX_HEIGHT = CONFIG.buildingMaxHeight;
 inline float& STREET_WIDTH = CONFIG.streetWidth;
-inline int& BUILDING_RENDER_RADIUS = CONFIG.buildingRenderRadius;
+inline float& BUILDING_RENDER_DISTANCE = CONFIG.buildingRenderDistance;
+inline int& MAX_VISIBLE_BUILDINGS = CONFIG.maxVisibleBuildings;
 inline float& BUILDING_TEXTURE_SCALE = CONFIG.buildingTextureScale;
 
 // LOD
@@ -82,5 +83,9 @@ inline float& INTRO_BODY_START_Y = CONFIG.introBodyStartY;
 inline float& INTRO_LINE_HEIGHT = CONFIG.introLineHeight;
 inline float& TYPEWRITER_CHAR_DELAY = CONFIG.typewriterCharDelay;
 inline float& TYPEWRITER_LINE_DELAY = CONFIG.typewriterLineDelay;
+
+// Debug
+inline bool& SHOW_AXES = CONFIG.showAxes;
+inline bool& SHOW_SHADOW_MAP = CONFIG.showShadowMap;
 
 }  // namespace GameConfig

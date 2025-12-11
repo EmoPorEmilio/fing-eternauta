@@ -13,6 +13,8 @@ public:
     }
 
     void setFogEnabled(bool enabled) { m_fogEnabled = enabled; }
+    void setFogDensity(float density) { m_fogDensity = density; }
+    void setFogColor(const glm::vec3& color) { m_fogColor = color; }
     void setShadowsEnabled(bool enabled) { m_shadowsEnabled = enabled; }
     void setShadowMap(GLuint texture) { m_shadowMap = texture; }
     void setLightSpaceMatrix(const glm::mat4& matrix) { m_lightSpaceMatrix = matrix; }
@@ -74,6 +76,13 @@ public:
                 shader->setInt("uTexture", 0);
                 shader->setInt("uHasTexture", hasTexture ? 1 : 0);
                 shader->setInt("uFogEnabled", m_fogEnabled ? 1 : 0);
+                // Set fog parameters if custom values provided
+                if (m_fogDensity >= 0.0f) {
+                    shader->setFloat("uFogDensity", m_fogDensity);
+                }
+                if (m_fogColor.r >= 0.0f) {
+                    shader->setVec3("uFogColor", m_fogColor);
+                }
                 shader->setInt("uShadowsEnabled", m_shadowsEnabled ? 1 : 0);
                 shader->setMat4("uLightSpaceMatrix", m_lightSpaceMatrix);
                 shader->setInt("uTriplanarMapping", renderable.triplanarMapping ? 1 : 0);
@@ -159,6 +168,13 @@ public:
                 shader->setInt("uTexture", 0);
                 shader->setInt("uHasTexture", hasTexture ? 1 : 0);
                 shader->setInt("uFogEnabled", m_fogEnabled ? 1 : 0);
+                // Set fog parameters if custom values provided
+                if (m_fogDensity >= 0.0f) {
+                    shader->setFloat("uFogDensity", m_fogDensity);
+                }
+                if (m_fogColor.r >= 0.0f) {
+                    shader->setVec3("uFogColor", m_fogColor);
+                }
                 shader->setInt("uShadowsEnabled", m_shadowsEnabled ? 1 : 0);
                 shader->setMat4("uLightSpaceMatrix", m_lightSpaceMatrix);
                 shader->setInt("uTriplanarMapping", renderable.triplanarMapping ? 1 : 0);
@@ -212,6 +228,8 @@ private:
     Shader m_skinnedShader;
     Shader m_terrainShader;
     bool m_fogEnabled = false;
+    float m_fogDensity = -1.0f;  // -1 means use shader default
+    glm::vec3 m_fogColor = glm::vec3(-1.0f);  // -1 means use shader default
     bool m_shadowsEnabled = false;
     GLuint m_shadowMap = 0;
     glm::mat4 m_lightSpaceMatrix = glm::mat4(1.0f);

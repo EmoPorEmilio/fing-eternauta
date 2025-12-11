@@ -244,9 +244,9 @@ int main(int argc, char* argv[]) {
     buildingBoxMesh.normalMap = brickNormalMap;  // Apply brick normal map
     std::cout << "Generated building data for " << buildingDataList.size() << " buildings" << std::endl;
 
-    // Culling parameters for building visibility
-    const int BUILDING_RENDER_RADIUS = GameConfig::BUILDING_RENDER_RADIUS;
-    const int MAX_VISIBLE_BUILDINGS = (2 * BUILDING_RENDER_RADIUS + 1) * (2 * BUILDING_RENDER_RADIUS + 1);
+    // Building visibility parameters from config
+    const float BUILDING_MAX_RENDER_DISTANCE = GameConfig::BUILDING_RENDER_DISTANCE;
+    const int MAX_VISIBLE_BUILDINGS = GameConfig::MAX_VISIBLE_BUILDINGS;
 
     // Get building footprints for minimap
     auto buildingFootprints = BuildingGenerator::getBuildingFootprints(buildingDataList);
@@ -578,6 +578,7 @@ int main(int argc, char* argv[]) {
     Shader* sunShader = assetManager.getShader(AssetShader::Sun);
     Shader* cometShader = assetManager.getShader(AssetShader::Comet);
     Shader* depthShader = assetManager.getShader(AssetShader::Depth);
+    Shader* skinnedDepthShader = assetManager.getShader(AssetShader::SkinnedDepth);
     Shader* motionBlurShader = assetManager.getShader(AssetShader::MotionBlur);
     Shader* toonPostShader = assetManager.getShader(AssetShader::ToonPost);
     Shader* blitShader = assetManager.getShader(AssetShader::Blit);
@@ -604,7 +605,6 @@ int main(int argc, char* argv[]) {
 
     // Building culling system (octree + frustum + instanced rendering)
     BuildingCuller buildingCuller;
-    const float BUILDING_MAX_RENDER_DISTANCE = BUILDING_RENDER_RADIUS * BuildingGenerator::BLOCK_SIZE * 1.5f;
     buildingCuller.init(buildingDataList, MAX_VISIBLE_BUILDINGS);
 
     // Debug axes
@@ -612,7 +612,7 @@ int main(int argc, char* argv[]) {
     axes.init();
 
     // Setup comet instances - spread across the distant sky
-    const int NUM_COMETS = 12;
+    const int NUM_COMETS = 20;
     const float COMET_SKY_DISTANCE = 800.0f;  // Very far in the sky
     const float COMET_SKY_HEIGHT = 400.0f;    // High up
     const float COMET_SKY_SPREAD = 600.0f;    // Horizontal spread
@@ -726,6 +726,7 @@ int main(int argc, char* argv[]) {
     sceneCtx.sunShader = sunShader;
     sceneCtx.cometShader = cometShader;
     sceneCtx.depthShader = depthShader;
+    sceneCtx.skinnedDepthShader = skinnedDepthShader;
     sceneCtx.motionBlurShader = motionBlurShader;
     sceneCtx.toonPostShader = toonPostShader;
     sceneCtx.blitShader = blitShader;

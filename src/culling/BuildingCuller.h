@@ -23,33 +23,35 @@ struct BuildingRenderParams {
     float textureScale = 4.0f;
     bool fogEnabled = false;
     bool shadowsEnabled = true;
-    // Fog parameters
-    glm::vec3 fogColor = glm::vec3(0.5f, 0.5f, 0.55f);
+    // Fog parameters - dark grey fog (matching GameConfig defaults)
+    glm::vec3 fogColor = glm::vec3(0.15f, 0.15f, 0.17f);
     float fogDensity = 0.02f;
     float fogDesaturation = 0.8f;
 };
 
-// Orchestrates building visibility culling using octree + frustum
-// Provides culled building list to InstancedRenderer for efficient drawing
+// Orquestar visibilidad de edificios con culling usando octree + frustum
 class BuildingCuller {
 public:
     BuildingCuller() = default;
 
-    // Initialize with building data - builds octree
+    // build octree
     void init(const std::vector<BuildingGenerator::BuildingData>& buildings,
               size_t maxVisibleBuildings) {
         m_buildings = &buildings;
 
-        // Build octree with building AABBs
         m_octree.build(buildings, [](const BuildingGenerator::BuildingData& b) -> AABB {
             glm::vec3 halfExtents(b.width * 0.5f, b.height * 0.5f, b.depth * 0.5f);
             glm::vec3 center = b.position + glm::vec3(0.0f, b.height * 0.5f, 0.0f);
             return AABB::fromCenterExtents(center, halfExtents);
         });
 
-        // Initialize instanced renderers (one for camera view, one for shadow pass)
         m_instancedRenderer.init(maxVisibleBuildings);
-        m_shadowInstancedRenderer.init(maxVisibleBuildings);
+        // Shadow renderer needs much larger capacity since we query 2x the distance
+        // which covers ~4x the area, so use 8x the visible count to be safe
+        size_t maxShadowCasters = maxVisibleBuildings * 8;
+        m_shadowInstancedRenderer.init(maxShadowCasters);
+        std::cout << "BuildingCuller: maxVisible=" << maxVisibleBuildings
+                  << " maxShadowCasters=" << maxShadowCasters << std::endl;
 
         // Print octree stats
         auto stats = m_octree.getStats();
@@ -148,9 +150,12 @@ public:
         m_shadowInstancedRenderer.beginFrame();
         m_shadowVisibleCount = 0;
 
-        // Query all buildings within shadow distance using radius query
-        // This ensures buildings behind the camera can still cast shadows into the visible area
-        m_octree.queryRadius(cameraPos, shadowDistance, [&](const BuildingGenerator::BuildingData& building) {
+        // Query all buildings within a larger shadow distance
+        // Use 2x the render distance to ensure buildings that cast shadows into
+        // the visible area are included, even if they're outside the camera view
+        float extendedShadowDistance = shadowDistance * 2.0f;
+
+        m_octree.queryRadius(cameraPos, extendedShadowDistance, [&](const BuildingGenerator::BuildingData& building) {
             m_shadowInstancedRenderer.addInstance(building.position,
                 glm::vec3(building.width, building.height, building.depth));
             m_shadowVisibleCount++;

@@ -76,6 +76,7 @@ struct SceneContext {
     Shader* sunShader = nullptr;
     Shader* cometShader = nullptr;
     Shader* depthShader = nullptr;
+    Shader* skinnedDepthShader = nullptr;
     Shader* motionBlurShader = nullptr;
     Shader* toonPostShader = nullptr;
     Shader* blitShader = nullptr;

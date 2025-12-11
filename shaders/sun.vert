@@ -18,4 +18,9 @@ void main() {
 
     vUV = aPos * 0.5 + 0.5;  // Convert from -1,1 to 0,1 range
     gl_Position = uProjection * uView * vec4(worldPos, 1.0);
+
+    // Force depth to be just inside far plane (0.9999) so sun is:
+    // - Always visible (not clipped by far plane)
+    // - Still occluded by any geometry in front of it
+    gl_Position.z = gl_Position.w * 0.9999;
 }

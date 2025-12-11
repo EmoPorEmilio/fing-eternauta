@@ -30,7 +30,9 @@ inline void renderGroundPlane(Shader& groundShader,
                               const glm::vec3& lightDir, const glm::vec3& viewPos,
                               bool fogEnabled, bool shadowsEnabled,
                               GLuint snowTexture, GLuint shadowDepthTexture,
-                              GLuint planeVAO) {
+                              GLuint planeVAO,
+                              float fogDensity = -1.0f,  // -1 means use shader default
+                              const glm::vec3& fogColor = glm::vec3(-1.0f)) {
     groundShader.use();
     groundShader.setMat4("uView", view);
     groundShader.setMat4("uProjection", projection);
@@ -41,6 +43,14 @@ inline void renderGroundPlane(Shader& groundShader,
     groundShader.setInt("uHasTexture", 1);
     groundShader.setInt("uFogEnabled", fogEnabled ? 1 : 0);
     groundShader.setInt("uShadowsEnabled", shadowsEnabled ? 1 : 0);
+
+    // Set fog parameters if provided
+    if (fogDensity >= 0.0f) {
+        groundShader.setFloat("uFogDensity", fogDensity);
+    }
+    if (fogColor.r >= 0.0f) {
+        groundShader.setVec3("uFogColor", fogColor);
+    }
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, snowTexture);

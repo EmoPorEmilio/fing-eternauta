@@ -106,16 +106,18 @@ public:
         ctx.renderPipeline->beginMainPass(ctx.gameState->toonShadingEnabled);
 
         // Debug axes
-        if (cam && camT && ctx.axes) {
+        if (GameConfig::SHOW_AXES && cam && camT && ctx.axes) {
             glm::mat4 vp = projection * playView;
             ctx.colorShader->use();
             ctx.colorShader->setMat4("uMVP", vp);
             ctx.axes->draw();
         }
 
-        // Render scene
+        // Render scene - reset fog to config values (menu may have changed them)
         RenderHelpers::setupRenderSystem(*ctx.renderSystem, ctx.gameState->fogEnabled, true,
                                           ctx.shadowDepthTexture, lightSpaceMatrix);
+        ctx.renderSystem->setFogDensity(GameConfig::FOG_DENSITY);
+        ctx.renderSystem->setFogColor(GameConfig::FOG_COLOR);
         ctx.renderSystem->update(*ctx.registry, ctx.aspectRatio);
 
         // Render buildings
@@ -131,12 +133,15 @@ public:
         params.textureScale = GameConfig::BUILDING_TEXTURE_SCALE;
         params.fogEnabled = ctx.gameState->fogEnabled;
         params.shadowsEnabled = true;
+        params.fogColor = GameConfig::FOG_COLOR;
+        params.fogDensity = GameConfig::FOG_DENSITY;
         ctx.renderPipeline->renderBuildings(params);
 
         // Render ground plane
         RenderHelpers::renderGroundPlane(*ctx.groundShader, playView, projection, lightSpaceMatrix,
             ctx.lightDir, cameraPos, ctx.gameState->fogEnabled, true,
-            ctx.snowTexture, ctx.shadowDepthTexture, ctx.planeVAO);
+            ctx.snowTexture, ctx.shadowDepthTexture, ctx.planeVAO,
+            GameConfig::FOG_DENSITY, GameConfig::FOG_COLOR);
 
         // Render sun
         ctx.renderPipeline->renderSun(playView, projection, cameraPos);
@@ -168,6 +173,9 @@ public:
 
         // === FINAL RESOLVE AND BLIT ===
         ctx.renderPipeline->finalResolveAndBlit();
+
+        // === DEBUG: Shadow map visualization ===
+        ctx.renderPipeline->renderShadowMapDebug();
     }
 
     void onExit(SceneContext& ctx) override {

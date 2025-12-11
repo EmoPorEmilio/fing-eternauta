@@ -2,8 +2,10 @@
 <GameConfig>
     <Window width="1280" height="720" title="El Eternauta - FING"/>
 
-    <Graphics shadowMapSize="2048" shadowOrthoSize="100.0"
-              shadowNear="1.0" shadowFar="200.0" shadowDistance="80.0"/>
+    <Graphics shadowMapSize="4096" shadowOrthoSize="150.0"
+              shadowNear="1.0" shadowFar="400.0" shadowDistance="150.0"/>
+
+    <Debug showAxes="false" showShadowMap="false"/>
 
     <Fog density="0.02" desaturation="0.8" color="0.15, 0.15, 0.17"/>
 
@@ -15,7 +17,7 @@
 
     <Buildings gridSize="100" width="8.0" depth="8.0"
                minHeight="15.0" maxHeight="40.0" streetWidth="12.0"
-               renderRadius="3" textureScale="4.0"/>
+               renderDistance="150.0" maxVisible="2000" textureScale="4.0"/>
 
     <LOD switchDistance="210.0"/>
 
@@ -28,7 +30,7 @@
 
     <FingBuilding pos="80.0, 10.0, 80.0"/>
 
-    <Light dir="0.5, 1.0, 0.3"/>
+    <Light dir="0.8, 0.4, 0.3"/>
 
     <UI introHeaderX="730.0" introHeaderY="80.0"
         introBodyLeftMargin="45.0" introBodyStartY="180.0" introLineHeight="100.0"
