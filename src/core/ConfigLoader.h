@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <iostream>
+#include <sstream>
 #include <glm/glm.hpp>
 #include "tinyxml.h"
 
@@ -129,137 +130,147 @@ public:
     }
 
 private:
-    // Helper to get float from element
-    static float getFloat(TiXmlElement* parent, const char* name, float defaultVal) {
-        if (!parent) return defaultVal;
-        TiXmlElement* elem = parent->FirstChildElement(name);
-        if (!elem || !elem->GetText()) return defaultVal;
-        return static_cast<float>(atof(elem->GetText()));
+    // Helper to get float attribute
+    static float getFloatAttr(TiXmlElement* elem, const char* name, float defaultVal) {
+        if (!elem) return defaultVal;
+        double val;
+        if (elem->QueryDoubleAttribute(name, &val) == TIXML_SUCCESS) {
+            return static_cast<float>(val);
+        }
+        return defaultVal;
     }
 
-    // Helper to get int from element
-    static int getInt(TiXmlElement* parent, const char* name, int defaultVal) {
-        if (!parent) return defaultVal;
-        TiXmlElement* elem = parent->FirstChildElement(name);
-        if (!elem || !elem->GetText()) return defaultVal;
-        return atoi(elem->GetText());
+    // Helper to get int attribute
+    static int getIntAttr(TiXmlElement* elem, const char* name, int defaultVal) {
+        if (!elem) return defaultVal;
+        int val;
+        if (elem->QueryIntAttribute(name, &val) == TIXML_SUCCESS) {
+            return val;
+        }
+        return defaultVal;
     }
 
-    // Helper to get string from element
-    static std::string getString(TiXmlElement* parent, const char* name, const std::string& defaultVal) {
-        if (!parent) return defaultVal;
-        TiXmlElement* elem = parent->FirstChildElement(name);
-        if (!elem || !elem->GetText()) return defaultVal;
-        return std::string(elem->GetText());
+    // Helper to get string attribute
+    static std::string getStringAttr(TiXmlElement* elem, const char* name, const std::string& defaultVal) {
+        if (!elem) return defaultVal;
+        const char* val = elem->Attribute(name);
+        return val ? std::string(val) : defaultVal;
+    }
+
+    // Helper to parse vec3 from comma-separated string "x, y, z"
+    static glm::vec3 getVec3Attr(TiXmlElement* elem, const char* name, const glm::vec3& defaultVal) {
+        if (!elem) return defaultVal;
+        const char* val = elem->Attribute(name);
+        if (!val) return defaultVal;
+
+        glm::vec3 result = defaultVal;
+        std::stringstream ss(val);
+        char comma;
+        if (ss >> result.x >> comma >> result.y >> comma >> result.z) {
+            return result;
+        }
+        return defaultVal;
     }
 
     static void parseWindow(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.windowWidth = getInt(elem, "width", s.windowWidth);
-        s.windowHeight = getInt(elem, "height", s.windowHeight);
-        s.windowTitle = getString(elem, "title", s.windowTitle);
+        s.windowWidth = getIntAttr(elem, "width", s.windowWidth);
+        s.windowHeight = getIntAttr(elem, "height", s.windowHeight);
+        s.windowTitle = getStringAttr(elem, "title", s.windowTitle);
     }
 
     static void parseGraphics(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.shadowMapSize = getInt(elem, "shadowMapSize", s.shadowMapSize);
-        s.shadowOrthoSize = getFloat(elem, "shadowOrthoSize", s.shadowOrthoSize);
-        s.shadowNear = getFloat(elem, "shadowNear", s.shadowNear);
-        s.shadowFar = getFloat(elem, "shadowFar", s.shadowFar);
-        s.shadowDistance = getFloat(elem, "shadowDistance", s.shadowDistance);
+        s.shadowMapSize = getIntAttr(elem, "shadowMapSize", s.shadowMapSize);
+        s.shadowOrthoSize = getFloatAttr(elem, "shadowOrthoSize", s.shadowOrthoSize);
+        s.shadowNear = getFloatAttr(elem, "shadowNear", s.shadowNear);
+        s.shadowFar = getFloatAttr(elem, "shadowFar", s.shadowFar);
+        s.shadowDistance = getFloatAttr(elem, "shadowDistance", s.shadowDistance);
     }
 
     static void parseFog(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.fogDensity = getFloat(elem, "density", s.fogDensity);
-        s.fogDesaturation = getFloat(elem, "desaturation", s.fogDesaturation);
-        s.fogColor.r = getFloat(elem, "colorR", s.fogColor.r);
-        s.fogColor.g = getFloat(elem, "colorG", s.fogColor.g);
-        s.fogColor.b = getFloat(elem, "colorB", s.fogColor.b);
+        s.fogDensity = getFloatAttr(elem, "density", s.fogDensity);
+        s.fogDesaturation = getFloatAttr(elem, "desaturation", s.fogDesaturation);
+        s.fogColor = getVec3Attr(elem, "color", s.fogColor);
     }
 
     static void parsePlayer(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.playerMoveSpeed = getFloat(elem, "moveSpeed", s.playerMoveSpeed);
-        s.playerTurnSpeed = getFloat(elem, "turnSpeed", s.playerTurnSpeed);
-        s.playerRadius = getFloat(elem, "radius", s.playerRadius);
-        s.playerScale = getFloat(elem, "scale", s.playerScale);
+        s.playerMoveSpeed = getFloatAttr(elem, "moveSpeed", s.playerMoveSpeed);
+        s.playerTurnSpeed = getFloatAttr(elem, "turnSpeed", s.playerTurnSpeed);
+        s.playerRadius = getFloatAttr(elem, "radius", s.playerRadius);
+        s.playerScale = getFloatAttr(elem, "scale", s.playerScale);
     }
 
     static void parseCamera(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.cameraFov = getFloat(elem, "fov", s.cameraFov);
-        s.cameraNear = getFloat(elem, "near", s.cameraNear);
-        s.cameraFar = getFloat(elem, "far", s.cameraFar);
-        s.followDistance = getFloat(elem, "followDistance", s.followDistance);
-        s.followHeight = getFloat(elem, "followHeight", s.followHeight);
-        s.shoulderOffset = getFloat(elem, "shoulderOffset", s.shoulderOffset);
-        s.lookAhead = getFloat(elem, "lookAhead", s.lookAhead);
+        s.cameraFov = getFloatAttr(elem, "fov", s.cameraFov);
+        s.cameraNear = getFloatAttr(elem, "near", s.cameraNear);
+        s.cameraFar = getFloatAttr(elem, "far", s.cameraFar);
+        s.followDistance = getFloatAttr(elem, "followDistance", s.followDistance);
+        s.followHeight = getFloatAttr(elem, "followHeight", s.followHeight);
+        s.shoulderOffset = getFloatAttr(elem, "shoulderOffset", s.shoulderOffset);
+        s.lookAhead = getFloatAttr(elem, "lookAhead", s.lookAhead);
     }
 
     static void parseBuildings(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.buildingGridSize = getInt(elem, "gridSize", s.buildingGridSize);
-        s.buildingWidth = getFloat(elem, "width", s.buildingWidth);
-        s.buildingDepth = getFloat(elem, "depth", s.buildingDepth);
-        s.buildingMinHeight = getFloat(elem, "minHeight", s.buildingMinHeight);
-        s.buildingMaxHeight = getFloat(elem, "maxHeight", s.buildingMaxHeight);
-        s.streetWidth = getFloat(elem, "streetWidth", s.streetWidth);
-        s.buildingRenderRadius = getInt(elem, "renderRadius", s.buildingRenderRadius);
-        s.buildingTextureScale = getFloat(elem, "textureScale", s.buildingTextureScale);
+        s.buildingGridSize = getIntAttr(elem, "gridSize", s.buildingGridSize);
+        s.buildingWidth = getFloatAttr(elem, "width", s.buildingWidth);
+        s.buildingDepth = getFloatAttr(elem, "depth", s.buildingDepth);
+        s.buildingMinHeight = getFloatAttr(elem, "minHeight", s.buildingMinHeight);
+        s.buildingMaxHeight = getFloatAttr(elem, "maxHeight", s.buildingMaxHeight);
+        s.streetWidth = getFloatAttr(elem, "streetWidth", s.streetWidth);
+        s.buildingRenderRadius = getIntAttr(elem, "renderRadius", s.buildingRenderRadius);
+        s.buildingTextureScale = getFloatAttr(elem, "textureScale", s.buildingTextureScale);
     }
 
     static void parseLOD(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.lodSwitchDistance = getFloat(elem, "switchDistance", s.lodSwitchDistance);
+        s.lodSwitchDistance = getFloatAttr(elem, "switchDistance", s.lodSwitchDistance);
     }
 
     static void parseGround(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.groundSize = getFloat(elem, "size", s.groundSize);
-        s.groundTextureScale = getFloat(elem, "textureScale", s.groundTextureScale);
+        s.groundSize = getFloatAttr(elem, "size", s.groundSize);
+        s.groundTextureScale = getFloatAttr(elem, "textureScale", s.groundTextureScale);
     }
 
     static void parseSnow(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.snowDefaultSpeed = getFloat(elem, "defaultSpeed", s.snowDefaultSpeed);
-        s.snowDefaultAngle = getFloat(elem, "defaultAngle", s.snowDefaultAngle);
-        s.snowDefaultBlur = getFloat(elem, "defaultBlur", s.snowDefaultBlur);
+        s.snowDefaultSpeed = getFloatAttr(elem, "defaultSpeed", s.snowDefaultSpeed);
+        s.snowDefaultAngle = getFloatAttr(elem, "defaultAngle", s.snowDefaultAngle);
+        s.snowDefaultBlur = getFloatAttr(elem, "defaultBlur", s.snowDefaultBlur);
     }
 
     static void parseCinematic(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.cinematicDuration = getFloat(elem, "duration", s.cinematicDuration);
-        s.cinematicMotionBlur = getFloat(elem, "motionBlur", s.cinematicMotionBlur);
-        s.introCharacterYaw = getFloat(elem, "introCharacterYaw", s.introCharacterYaw);
-        s.introCharacterPos.x = getFloat(elem, "introCharacterPosX", s.introCharacterPos.x);
-        s.introCharacterPos.y = getFloat(elem, "introCharacterPosY", s.introCharacterPos.y);
-        s.introCharacterPos.z = getFloat(elem, "introCharacterPosZ", s.introCharacterPos.z);
+        s.cinematicDuration = getFloatAttr(elem, "duration", s.cinematicDuration);
+        s.cinematicMotionBlur = getFloatAttr(elem, "motionBlur", s.cinematicMotionBlur);
+        s.introCharacterYaw = getFloatAttr(elem, "introCharacterYaw", s.introCharacterYaw);
+        s.introCharacterPos = getVec3Attr(elem, "introCharacterPos", s.introCharacterPos);
     }
 
     static void parseFingBuilding(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.fingBuildingPos.x = getFloat(elem, "posX", s.fingBuildingPos.x);
-        s.fingBuildingPos.y = getFloat(elem, "posY", s.fingBuildingPos.y);
-        s.fingBuildingPos.z = getFloat(elem, "posZ", s.fingBuildingPos.z);
+        s.fingBuildingPos = getVec3Attr(elem, "pos", s.fingBuildingPos);
     }
 
     static void parseLight(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.lightDir.x = getFloat(elem, "dirX", s.lightDir.x);
-        s.lightDir.y = getFloat(elem, "dirY", s.lightDir.y);
-        s.lightDir.z = getFloat(elem, "dirZ", s.lightDir.z);
+        s.lightDir = getVec3Attr(elem, "dir", s.lightDir);
     }
 
     static void parseUI(TiXmlElement* elem, GameSettings& s) {
         if (!elem) return;
-        s.introHeaderX = getFloat(elem, "introHeaderX", s.introHeaderX);
-        s.introHeaderY = getFloat(elem, "introHeaderY", s.introHeaderY);
-        s.introBodyLeftMargin = getFloat(elem, "introBodyLeftMargin", s.introBodyLeftMargin);
-        s.introBodyStartY = getFloat(elem, "introBodyStartY", s.introBodyStartY);
-        s.introLineHeight = getFloat(elem, "introLineHeight", s.introLineHeight);
-        s.typewriterCharDelay = getFloat(elem, "typewriterCharDelay", s.typewriterCharDelay);
-        s.typewriterLineDelay = getFloat(elem, "typewriterLineDelay", s.typewriterLineDelay);
+        s.introHeaderX = getFloatAttr(elem, "introHeaderX", s.introHeaderX);
+        s.introHeaderY = getFloatAttr(elem, "introHeaderY", s.introHeaderY);
+        s.introBodyLeftMargin = getFloatAttr(elem, "introBodyLeftMargin", s.introBodyLeftMargin);
+        s.introBodyStartY = getFloatAttr(elem, "introBodyStartY", s.introBodyStartY);
+        s.introLineHeight = getFloatAttr(elem, "introLineHeight", s.introLineHeight);
+        s.typewriterCharDelay = getFloatAttr(elem, "typewriterCharDelay", s.typewriterCharDelay);
+        s.typewriterLineDelay = getFloatAttr(elem, "typewriterLineDelay", s.typewriterLineDelay);
     }
 };
 
