@@ -41,6 +41,10 @@ struct GameState {
     // Timing
     float gameTime = 0.0f;
 
+    // NPC animation debug toggle
+    float npcAnimToggleTimer = 0.0f;
+    int npcAnimIndex = 0;
+
     // Reset intro text state (for re-entering intro scene)
     void resetIntroText() {
         introCurrentLine = 0;

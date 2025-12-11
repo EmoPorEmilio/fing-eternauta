@@ -200,10 +200,17 @@ inline void RenderPipeline::renderShadowCasters(const glm::mat4& lightSpaceMatri
     auto* protagonistT = m_ctx->registry->getTransform(m_ctx->protagonist);
     auto* protagonistMG = m_ctx->registry->getMeshGroup(m_ctx->protagonist);
     auto* protagonistSkeleton = m_ctx->registry->getSkeleton(m_ctx->protagonist);
+    auto* protagonistR = m_ctx->registry->getRenderable(m_ctx->protagonist);
     if (protagonistT && protagonistMG) {
         m_ctx->skinnedDepthShader->use();
         m_ctx->skinnedDepthShader->setMat4("uLightSpaceMatrix", lightSpaceMatrix);
-        m_ctx->skinnedDepthShader->setMat4("uModel", protagonistT->matrix());
+
+        // Apply mesh offset to match render system
+        glm::mat4 model = protagonistT->matrix();
+        if (protagonistR && protagonistR->meshOffset != glm::vec3(0.0f)) {
+            model = model * glm::translate(glm::mat4(1.0f), protagonistR->meshOffset);
+        }
+        m_ctx->skinnedDepthShader->setMat4("uModel", model);
 
         // Set skinning data
         bool hasSkinning = protagonistSkeleton && !protagonistSkeleton->boneMatrices.empty();
@@ -215,6 +222,36 @@ inline void RenderPipeline::renderShadowCasters(const glm::mat4& lightSpaceMatri
         for (const auto& mesh : protagonistMG->meshes) {
             glBindVertexArray(mesh.vao);
             glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
+        }
+    }
+
+    // Render NPC shadows (skinned meshes)
+    for (Entity npc : m_ctx->npcs) {
+        auto* npcT = m_ctx->registry->getTransform(npc);
+        auto* npcMG = m_ctx->registry->getMeshGroup(npc);
+        auto* npcSkeleton = m_ctx->registry->getSkeleton(npc);
+        auto* npcR = m_ctx->registry->getRenderable(npc);
+        if (npcT && npcMG) {
+            m_ctx->skinnedDepthShader->use();
+            m_ctx->skinnedDepthShader->setMat4("uLightSpaceMatrix", lightSpaceMatrix);
+
+            // Apply mesh offset to match render system
+            glm::mat4 model = npcT->matrix();
+            if (npcR && npcR->meshOffset != glm::vec3(0.0f)) {
+                model = model * glm::translate(glm::mat4(1.0f), npcR->meshOffset);
+            }
+            m_ctx->skinnedDepthShader->setMat4("uModel", model);
+
+            bool hasSkinning = npcSkeleton && !npcSkeleton->boneMatrices.empty();
+            m_ctx->skinnedDepthShader->setInt("uUseSkinning", hasSkinning ? 1 : 0);
+            if (hasSkinning) {
+                m_ctx->skinnedDepthShader->setMat4Array("uBones", npcSkeleton->boneMatrices);
+            }
+
+            for (const auto& mesh : npcMG->meshes) {
+                glBindVertexArray(mesh.vao);
+                glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
+            }
         }
     }
 }

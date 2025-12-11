@@ -228,6 +228,8 @@ private:
         m_models["fingHighDetail"] = loadGLB("assets/modelo_fing.glb");
         m_models["fingLowDetail"] = loadGLB("assets/fing_lod.glb");
         m_models["comet"] = loadGLB("assets/comet.glb");
+        m_models["military"] = loadGLB("assets/military.glb");
+        m_models["scientist"] = loadGLB("assets/scientist.glb");
     }
 
     // === Primitive VAO creation ===

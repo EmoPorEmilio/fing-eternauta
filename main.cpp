@@ -218,6 +218,66 @@ int main(int argc, char* argv[]) {
     LoadedModel& cometData = assetManager.getModel("comet");
     MeshGroup& cometMeshGroup = cometData.meshGroup;
 
+    // === Create NPC entities (2 military, 2 scientist) near GodMode camera start ===
+    // GodMode camera starts at (5, 3, 5) looking at -45 yaw (toward origin)
+    // Place NPCs in a line visible from that position
+    std::vector<Entity> npcEntities;
+    float npcSpacing = 2.0f;
+    float npcBaseX = 34.0f;   // Moved 8x further toward FING direction
+    float npcBaseZ = 34.0f;
+    float npcY = 0.0f;  // Ground level (same as protagonist)
+
+    // Model types for NPCs: military, military, scientist, scientist
+    std::vector<std::string> npcModelNames = {"military", "military", "scientist", "scientist"};
+
+    for (int i = 0; i < 4; ++i) {
+        LoadedModel& npcModelData = assetManager.getModel(npcModelNames[i]);
+
+        Entity npc = registry.create();
+        Transform npcTransform;
+        npcTransform.position = glm::vec3(npcBaseX + i * npcSpacing, npcY, npcBaseZ);
+        npcTransform.scale = glm::vec3(GameConfig::PLAYER_SCALE);  // Same scale as protagonist
+        // Rotate 180 degrees around Y axis to face opposite direction
+        npcTransform.rotation = glm::angleAxis(glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        registry.addTransform(npc, npcTransform);
+
+        // Copy the mesh group (don't move it since we may reuse the model)
+        MeshGroup npcMeshGroup;
+        npcMeshGroup.meshes = npcModelData.meshGroup.meshes;
+        registry.addMeshGroup(npc, std::move(npcMeshGroup));
+
+        Renderable npcRenderable;
+        npcRenderable.shader = ShaderType::Skinned;
+        npcRenderable.meshOffset = glm::vec3(0.0f, -25.0f, 0.0f);  // Same as protagonist
+        registry.addRenderable(npc, npcRenderable);
+
+        // Add facing direction so they face away from FING (toward camera)
+        FacingDirection npcFacing;
+        npcFacing.yaw = 0.0f;  // Face opposite direction (away from FING)
+        registry.addFacingDirection(npc, npcFacing);
+
+        // Add skeleton and animation if the model has them
+        if (npcModelData.skeleton) {
+            // Copy skeleton data
+            Skeleton npcSkeleton = *npcModelData.skeleton;
+            registry.addSkeleton(npc, std::move(npcSkeleton));
+
+            // Add animation component - use dancing animation
+            // Military: index 1, Scientist: index 2
+            Animation anim;
+            anim.clipIndex = (npcModelNames[i] == "military") ? 1 : 2;
+            anim.playing = true;
+            anim.time = 0.0f;
+            anim.clips = npcModelData.clips;
+            registry.addAnimation(npc, anim);
+
+            std::cout << "NPC " << i << " (" << npcModelNames[i] << ") dancing with anim index "
+                      << anim.clipIndex << std::endl;
+        }
+
+        npcEntities.push_back(npc);
+    }
+
     // Game state - all runtime variables in one place
     GameState gameState;
 
@@ -764,6 +824,7 @@ int main(int argc, char* argv[]) {
     sceneCtx.protagonist = protagonist;
     sceneCtx.camera = camera;
     sceneCtx.fingBuilding = fingBuilding;
+    sceneCtx.npcs = npcEntities;
 
     // FING building LOD
     sceneCtx.fingHighDetail = &fingHighDetail;

@@ -115,6 +115,9 @@ struct SceneContext {
     Entity camera = NULL_ENTITY;
     Entity fingBuilding = NULL_ENTITY;
 
+    // NPC entities (for dancing near FING)
+    std::vector<Entity> npcs;
+
     // FING building data for LOD and collision
     MeshGroup* fingHighDetail = nullptr;
     MeshGroup* fingLowDetail = nullptr;
