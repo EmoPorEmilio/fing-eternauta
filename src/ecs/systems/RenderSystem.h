@@ -27,18 +27,16 @@ public:
         auto* camTransform = registry.getTransform(camEntity);
         if (!cam || !camTransform) return;
 
-        // Compute view matrix: look ahead of character
         glm::mat4 view;
         auto* followTarget = registry.getFollowTarget(camEntity);
         if (followTarget && followTarget->target != NULL_ENTITY) {
             auto* targetTransform = registry.getTransform(followTarget->target);
             auto* facing = registry.getFacingDirection(followTarget->target);
             if (targetTransform && facing) {
-                // Look at point ahead of character based on target's facing yaw
                 float yawRad = glm::radians(facing->yaw);
                 glm::vec3 forward(-sin(yawRad), 0.0f, -cos(yawRad));
                 glm::vec3 lookAtPos = targetTransform->position + forward * followTarget->lookAhead;
-                lookAtPos.y += 1.0f; // Eye level
+                lookAtPos.y += 1.0f;
                 view = glm::lookAt(camTransform->position, lookAtPos, glm::vec3(0.0f, 1.0f, 0.0f));
             } else {
                 view = glm::lookAt(camTransform->position, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -58,7 +56,6 @@ public:
             shader->setMat4("uView", view);
             shader->setMat4("uProjection", projection);
 
-            // Apply mesh offset (for models with origin at hips instead of feet)
             glm::mat4 model = transform.matrix();
             if (renderable.meshOffset != glm::vec3(0.0f)) {
                 model = model * glm::translate(glm::mat4(1.0f), renderable.meshOffset);
@@ -76,18 +73,12 @@ public:
                 shader->setInt("uTexture", 0);
                 shader->setInt("uHasTexture", hasTexture ? 1 : 0);
                 shader->setInt("uFogEnabled", m_fogEnabled ? 1 : 0);
-                // Set fog parameters if custom values provided
-                if (m_fogDensity >= 0.0f) {
-                    shader->setFloat("uFogDensity", m_fogDensity);
-                }
-                if (m_fogColor.r >= 0.0f) {
-                    shader->setVec3("uFogColor", m_fogColor);
-                }
+                if (m_fogDensity >= 0.0f) shader->setFloat("uFogDensity", m_fogDensity);
+                if (m_fogColor.r >= 0.0f) shader->setVec3("uFogColor", m_fogColor);
                 shader->setInt("uShadowsEnabled", m_shadowsEnabled ? 1 : 0);
                 shader->setMat4("uLightSpaceMatrix", m_lightSpaceMatrix);
                 shader->setInt("uTriplanarMapping", renderable.triplanarMapping ? 1 : 0);
                 shader->setFloat("uTextureScale", renderable.textureScale);
-                // Bind shadow map to texture unit 1
                 glActiveTexture(GL_TEXTURE1);
                 glBindTexture(GL_TEXTURE_2D, m_shadowMap);
                 shader->setInt("uShadowMap", 1);
@@ -112,7 +103,6 @@ public:
                     glBindTexture(GL_TEXTURE_2D, mesh.texture);
                 }
 
-                // Bind normal map to texture unit 2
                 if (mesh.normalMap) {
                     glActiveTexture(GL_TEXTURE2);
                     glBindTexture(GL_TEXTURE_2D, mesh.normalMap);
@@ -130,7 +120,6 @@ public:
         glBindVertexArray(0);
     }
 
-    // Render with a custom view matrix (for god mode)
     void updateWithView(Registry& registry, float aspectRatio, const glm::mat4& view) {
         Entity camEntity = registry.getActiveCamera();
         if (camEntity == NULL_ENTITY) return;
@@ -150,7 +139,6 @@ public:
             shader->setMat4("uView", view);
             shader->setMat4("uProjection", projection);
 
-            // Apply mesh offset (for models with origin at hips instead of feet)
             glm::mat4 model = transform.matrix();
             if (renderable.meshOffset != glm::vec3(0.0f)) {
                 model = model * glm::translate(glm::mat4(1.0f), renderable.meshOffset);
@@ -168,18 +156,12 @@ public:
                 shader->setInt("uTexture", 0);
                 shader->setInt("uHasTexture", hasTexture ? 1 : 0);
                 shader->setInt("uFogEnabled", m_fogEnabled ? 1 : 0);
-                // Set fog parameters if custom values provided
-                if (m_fogDensity >= 0.0f) {
-                    shader->setFloat("uFogDensity", m_fogDensity);
-                }
-                if (m_fogColor.r >= 0.0f) {
-                    shader->setVec3("uFogColor", m_fogColor);
-                }
+                if (m_fogDensity >= 0.0f) shader->setFloat("uFogDensity", m_fogDensity);
+                if (m_fogColor.r >= 0.0f) shader->setVec3("uFogColor", m_fogColor);
                 shader->setInt("uShadowsEnabled", m_shadowsEnabled ? 1 : 0);
                 shader->setMat4("uLightSpaceMatrix", m_lightSpaceMatrix);
                 shader->setInt("uTriplanarMapping", renderable.triplanarMapping ? 1 : 0);
                 shader->setFloat("uTextureScale", renderable.textureScale);
-                // Bind shadow map to texture unit 1
                 glActiveTexture(GL_TEXTURE1);
                 glBindTexture(GL_TEXTURE_2D, m_shadowMap);
                 shader->setInt("uShadowMap", 1);
@@ -204,7 +186,6 @@ public:
                     glBindTexture(GL_TEXTURE_2D, mesh.texture);
                 }
 
-                // Bind normal map to texture unit 2
                 if (mesh.normalMap) {
                     glActiveTexture(GL_TEXTURE2);
                     glBindTexture(GL_TEXTURE_2D, mesh.normalMap);

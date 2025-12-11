@@ -74,10 +74,12 @@ vec3 litColor = textureColor * light;
 ```
 
 ### 2.2 Directional Light
-Single infinite-distance light source simulating sunlight:
+Single infinite-distance light source simulating sunlight. Configurable via `config.xml`:
 ```cpp
-glm::vec3 lightDir = glm::normalize(glm::vec3(0.5f, 1.0f, 0.3f));
+// Default: low sun angle for long shadows
+glm::vec3 lightDir = glm::normalize(glm::vec3(0.8f, 0.4f, 0.3f));
 ```
+See Section 33 for detailed configuration.
 
 ---
 
@@ -163,9 +165,9 @@ glm::mat4 view = glm::lookAt(cameraPosition, lookAtTarget, upVector);
 ```cpp
 glm::mat4 projection = glm::perspective(glm::radians(fov), aspectRatio, nearPlane, farPlane);
 ```
-- **Field of View**: 60 degrees
+- **Field of View**: 60 degrees (configurable in config.xml)
 - **Near Plane**: 0.1 units (prevents z-fighting)
-- **Far Plane**: 100 units (rendering distance limit)
+- **Far Plane**: 500 units (rendering distance limit)
 
 ### 5.4 Camera Orbit Controls
 - **Yaw**: Horizontal rotation (mouse X movement)
@@ -494,6 +496,7 @@ shaders/
 ├── building_instanced.vert # Instanced building rendering
 ├── depth.vert/frag         # Shadow pass depth shader
 ├── depth_instanced.vert    # Instanced shadow pass
+├── skinned_depth.vert      # Shadow pass for skinned meshes
 ├── comet.vert/frag         # Animated comet effect
 ├── sun.vert/frag           # Sun billboard
 ├── motion_blur.vert/frag   # Velocity-based motion blur
@@ -926,6 +929,7 @@ struct SceneContext {
     Entity protagonist;
     Entity camera;
     Entity fingBuilding;
+    std::vector<Entity> npcs;  // NPC characters
 };
 ```
 
@@ -1008,7 +1012,9 @@ enum class SceneType {
 
 #### GodModeScene
 - Free camera (WASD + mouse)
-- No shadows for performance
+- Full shadow mapping support
+- Sun billboard rendering
+- NPC animation playback
 - Debug camera position logging (P key)
 - Useful for level design and debugging
 
@@ -1147,7 +1153,7 @@ Directional shadow mapping using a dedicated depth-only render pass.
 ### 26.2 Shadow Pass
 ```cpp
 // Configure shadow FBO
-glViewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);  // 2048x2048
+glViewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);  // 4096x4096 (configurable)
 glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
 glClear(GL_DEPTH_BUFFER_BIT);
 
@@ -1158,10 +1164,13 @@ glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoS
 glm::mat4 lightView = glm::lookAt(lightPos, playerPos, glm::vec3(0, 1, 0));
 glm::mat4 lightSpaceMatrix = lightProjection * lightView;
 
-// Render shadow casters
+// Render shadow casters (buildings, FING, protagonist, NPCs)
 depthShader.use();
 depthShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
-// ... render buildings and FING
+// ... render static geometry
+
+skinnedDepthShader.use();  // For animated characters
+// ... render protagonist and NPCs with bone matrices
 ```
 
 ### 26.3 Shadow Sampling (Main Pass)
@@ -1173,10 +1182,14 @@ projCoords = projCoords * 0.5 + 0.5;  // [-1,1] -> [0,1]
 
 float closestDepth = texture(uShadowMap, projCoords.xy).r;
 float currentDepth = projCoords.z;
-float bias = 0.005;  // Prevents shadow acne
+
+// Slope-scaled bias prevents shadow acne while minimizing peter panning
+float bias = max(0.0005 * (1.0 - dot(normal, lightDir)), 0.0001);
 
 shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
 ```
+
+See Section 34 for detailed bias tuning information.
 
 ---
 
@@ -1308,3 +1321,152 @@ for (int layer = 0; layer < 3; layer++) {
 - **Angle**: Wind direction (-180° to 180°)
 - **Motion Blur**: Trail length (0.0 - 5.0)
 - **Enabled**: Toggle via pause menu
+
+---
+
+## 31. NPC System
+
+### 31.1 Overview
+Non-player characters with skeletal animation support. Currently includes military and scientist character models with dancing animations.
+
+### 31.2 NPC Entity Creation
+NPCs are created as standard ECS entities with the same components as the protagonist:
+
+```cpp
+Entity npc = registry.create();
+Transform npcTransform;
+npcTransform.position = glm::vec3(x, y, z);
+npcTransform.scale = glm::vec3(GameConfig::PLAYER_SCALE);  // 0.01
+npcTransform.rotation = glm::angleAxis(glm::radians(180.0f), glm::vec3(0, 1, 0));
+registry.addTransform(npc, npcTransform);
+
+// Mesh, Renderable, Skeleton, Animation components added similarly
+```
+
+### 31.3 Animation Playback
+Each NPC has a hardcoded animation clip index that loops continuously:
+- **Military**: Animation index 1 (dancing)
+- **Scientist**: Animation index 2 (dancing)
+
+Animation is driven by `AnimationSystem` and `SkeletonSystem` each frame.
+
+### 31.4 NPC Shadows
+NPCs cast shadows using the skinned depth shader. The shadow pass applies the same `meshOffset` as the render pass to ensure shadow alignment:
+
+```cpp
+// In RenderPipeline::renderShadowCasters()
+for (Entity npc : m_ctx->npcs) {
+    auto* npcR = m_ctx->registry->getRenderable(npc);
+    glm::mat4 model = npcT->matrix();
+    if (npcR && npcR->meshOffset != glm::vec3(0.0f)) {
+        model = model * glm::translate(glm::mat4(1.0f), npcR->meshOffset);
+    }
+    // Render with skinnedDepthShader...
+}
+```
+
+### 31.5 SceneContext NPC Storage
+NPCs are stored in a vector in SceneContext for easy iteration:
+```cpp
+std::vector<Entity> npcs;  // Populated in main.cpp after NPC creation
+```
+
+---
+
+## 32. Sun Billboard Rendering
+
+### 32.1 Overview
+The sun is rendered as a camera-facing billboard (sprite) positioned in the sky.
+
+### 32.2 Billboard Technique
+The vertex shader extracts camera right/up vectors from the view matrix:
+
+```glsl
+vec3 camRight = vec3(uView[0][0], uView[1][0], uView[2][0]);
+vec3 camUp = vec3(uView[0][1], uView[1][1], uView[2][1]);
+
+vec3 worldPos = uSunWorldPos + camRight * aPos.x * uSize + camUp * aPos.y * uSize;
+```
+
+### 32.3 Depth Handling
+The sun needs special depth handling to:
+1. Always be visible (not clipped by far plane)
+2. Still be occluded by geometry (buildings)
+
+Solution: Force depth to just inside the far plane:
+```glsl
+gl_Position = uProjection * uView * vec4(worldPos, 1.0);
+gl_Position.z = gl_Position.w * 0.9999;  // Just inside far plane
+```
+
+This ensures depth test passes for the sun, but any geometry in front will occlude it.
+
+---
+
+## 33. Configurable Light Direction
+
+### 33.1 XML Configuration
+Light direction is configurable in `config.xml`:
+```xml
+<Light dir="0.8, 0.4, 0.3"/>
+```
+
+### 33.2 Shadow Length
+The light direction affects shadow length:
+- **High Y component** (e.g., 0.5, 1.0, 0.3): Short shadows (sun overhead)
+- **Low Y component** (e.g., 0.8, 0.4, 0.3): Long shadows (low sun angle)
+
+The direction vector is normalized before use.
+
+---
+
+## 34. Shadow Bias Tuning
+
+### 34.1 Problem: Peter Panning
+Shadow bias prevents shadow acne (striping artifacts) but too much bias causes "peter panning" - shadows detaching from their casters.
+
+### 34.2 Scale-Dependent Bias
+For small-scale characters (scale = 0.01), the default bias was too large relative to model size. Reduced bias values:
+
+```glsl
+// Old: caused peter panning on small characters
+float bias = max(0.005 * (1.0 - dot(normal, lightDir)), 0.001);
+
+// New: accurate shadows for small-scale models
+float bias = max(0.0005 * (1.0 - dot(normal, lightDir)), 0.0001);
+```
+
+### 34.3 Trade-off
+Lower bias = more accurate shadow placement but potential shadow acne on large flat surfaces. Current values work well for both characters and buildings.
+
+---
+
+## 35. GodMode Scene Enhancements
+
+### 35.1 Full Shadow Support
+GodMode now includes the complete shadow mapping pipeline:
+```cpp
+void GodModeScene::render(SceneContext& ctx) {
+    // Shadow pass
+    ctx.renderPipeline->beginShadowPass();
+    ctx.renderPipeline->renderShadowCasters(lightSpaceMatrix, cameraPos);
+    ctx.renderPipeline->endShadowPass();
+
+    // Main pass with shadows enabled
+    RenderHelpers::setupRenderSystem(*ctx.renderSystem, fogEnabled, true /*shadows*/,
+                                      ctx.shadowDepthTexture, lightSpaceMatrix);
+    // ...
+}
+```
+
+### 35.2 Sun Rendering
+GodMode renders the sun billboard:
+```cpp
+ctx.renderPipeline->renderSun(view, projection, cameraPos);
+```
+
+### 35.3 NPC Animation Updates
+GodMode updates NPC animations each frame:
+```cpp
+ctx.animationSystem->update(*ctx.registry, ctx.dt);
+ctx.skeletonSystem->update(*ctx.registry);

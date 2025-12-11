@@ -28,7 +28,8 @@
       "Bash(cd:*)",
       "Bash(\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\fing-eternauta.sln\" /p:Configuration=Debug /p:Platform=x64 /v:m /nologo)",
       "Bash(\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" fing-eternauta.sln -p:Configuration=Debug -p:Platform=x64 -verbosity:minimal)",
-      "Bash(del \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\shaders\\fxaa.frag\")"
+      "Bash(del \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\shaders\\fxaa.frag\")",
+      "Bash(cmd /c:*)"
     ],
     "deny": [],
     "ask": []

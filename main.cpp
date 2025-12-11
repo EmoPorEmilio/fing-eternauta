@@ -46,29 +46,22 @@
 #include "src/core/ConfigLoader.h"
 
 int main(int argc, char* argv[]) {
-    // Load configuration from XML (uses defaults if file not found)
     ConfigLoader::load("config.xml");
 
-    // Initialize window and OpenGL context
     WindowManager windowManager;
     if (!windowManager.init()) {
         return -1;
     }
 
-    // Initialize asset manager (loads textures, shaders, models, FBOs)
     AssetManager assetManager;
     if (!assetManager.init()) {
         std::cerr << "Failed to initialize asset manager" << std::endl;
         return -1;
     }
 
-    // Registry
     Registry registry;
-
-    // Scene Manager
     SceneManager sceneManager;
 
-    // Systems
     InputSystem inputSystem;
     PlayerMovementSystem playerMovementSystem;
     CameraOrbitSystem cameraOrbitSystem;
@@ -91,7 +84,6 @@ int main(int argc, char* argv[]) {
 
     CinematicSystem cinematicSystem;
 
-    // Load UI fonts
     if (!uiSystem.fonts().loadFont("oxanium", "assets/fonts/Oxanium.ttf", 28)) {
         std::cerr << "Failed to load Oxanium font" << std::endl;
     }
@@ -101,7 +93,6 @@ int main(int argc, char* argv[]) {
     if (!uiSystem.fonts().loadFont("oxanium_small", "assets/fonts/Oxanium.ttf", 17)) {
         std::cerr << "Failed to load Oxanium small font" << std::endl;
     }
-    // 1942 font - load many sizes for testing
     uiSystem.fonts().loadFont("1942_12", "assets/fonts/1942.ttf", 12);
     uiSystem.fonts().loadFont("1942_14", "assets/fonts/1942.ttf", 14);
     uiSystem.fonts().loadFont("1942_16", "assets/fonts/1942.ttf", 16);
@@ -113,7 +104,6 @@ int main(int argc, char* argv[]) {
     uiSystem.fonts().loadFont("1942_32", "assets/fonts/1942.ttf", 32);
     uiSystem.fonts().loadFont("1942_36", "assets/fonts/1942.ttf", 36);
     uiSystem.fonts().loadFont("1942_48", "assets/fonts/1942.ttf", 48);
-    // Oxanium extra sizes
     uiSystem.fonts().loadFont("oxanium_12", "assets/fonts/Oxanium.ttf", 12);
     uiSystem.fonts().loadFont("oxanium_14", "assets/fonts/Oxanium.ttf", 14);
     uiSystem.fonts().loadFont("oxanium_16", "assets/fonts/Oxanium.ttf", 16);
@@ -125,10 +115,8 @@ int main(int argc, char* argv[]) {
 
     inputSystem.setWindow(windowManager.window());
 
-    // Get loaded assets from AssetManager
+    // === Protagonist ===
     LoadedModel& protagonistData = assetManager.getModel("protagonist");
-
-    // Create protagonist entity
     Entity protagonist = registry.create();
     Transform protagonistTransform;
     protagonistTransform.position = GameConfig::INTRO_CHARACTER_POS;
@@ -137,10 +125,9 @@ int main(int argc, char* argv[]) {
     registry.addMeshGroup(protagonist, std::move(protagonistData.meshGroup));
     Renderable protagonistRenderable;
     protagonistRenderable.shader = ShaderType::Skinned;
-    protagonistRenderable.meshOffset = glm::vec3(0.0f, -25.0f, 0.0f);  // Lower mesh so feet touch ground
+    protagonistRenderable.meshOffset = glm::vec3(0.0f, -25.0f, 0.0f);
     registry.addRenderable(protagonist, protagonistRenderable);
 
-    // Add player controller
     PlayerController playerController;
     playerController.moveSpeed = GameConfig::PLAYER_MOVE_SPEED;
     playerController.turnSpeed = GameConfig::PLAYER_TURN_SPEED;
