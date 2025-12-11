@@ -58,10 +58,17 @@ struct GameSettings {
     float groundSize = 500.0f;
     float groundTextureScale = 0.5f;
 
-    // Snow effect
+    // Snow effect (2D overlay)
     float snowDefaultSpeed = 7.0f;
     float snowDefaultAngle = 20.0f;
     float snowDefaultBlur = 3.0f;
+
+    // Snow particles (3D billboards)
+    int snowParticleCount = 2000;
+    float snowSphereRadius = 50.0f;
+    float snowParticleFallSpeed = 3.0f;
+    float snowParticleSize = 0.1f;
+    float snowWindStrength = 0.5f;
 
     // Cinematic
     float cinematicDuration = 3.0f;
@@ -258,6 +265,11 @@ private:
         s.snowDefaultSpeed = getFloatAttr(elem, "defaultSpeed", s.snowDefaultSpeed);
         s.snowDefaultAngle = getFloatAttr(elem, "defaultAngle", s.snowDefaultAngle);
         s.snowDefaultBlur = getFloatAttr(elem, "defaultBlur", s.snowDefaultBlur);
+        s.snowParticleCount = getIntAttr(elem, "particleCount", s.snowParticleCount);
+        s.snowSphereRadius = getFloatAttr(elem, "sphereRadius", s.snowSphereRadius);
+        s.snowParticleFallSpeed = getFloatAttr(elem, "particleFallSpeed", s.snowParticleFallSpeed);
+        s.snowParticleSize = getFloatAttr(elem, "particleSize", s.snowParticleSize);
+        s.snowWindStrength = getFloatAttr(elem, "windStrength", s.snowWindStrength);
     }
 
     static void parseCinematic(TiXmlElement* elem, GameSettings& s) {

@@ -149,6 +149,11 @@ public:
         // Render comets
         ctx.renderPipeline->renderComets(playView, projection, cameraPos);
 
+        // Render 3D snow particles
+        if (protagonistT) {
+            ctx.renderPipeline->renderSnow(playView, projection, protagonistT->position);
+        }
+
         // Render snow overlay
         RenderHelpers::renderSnowOverlay(*ctx.overlayShader, ctx.overlayVAO, *ctx.gameState);
 

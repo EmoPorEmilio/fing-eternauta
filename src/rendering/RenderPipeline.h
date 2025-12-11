@@ -43,6 +43,7 @@ public:
                       const glm::vec3& cometColor);
     void renderComets(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
     void renderSun(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
+    void renderSnow(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& playerPos);
 
     // ==================== Debug ====================
     void renderShadowMapDebug();
@@ -353,4 +354,31 @@ inline void RenderPipeline::renderShadowMapDebug() {
     // Restore viewport
     glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
     glEnable(GL_DEPTH_TEST);
+}
+
+inline void RenderPipeline::renderSnow(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& playerPos) {
+    if (!m_ctx->snowShader || m_ctx->snowVAO == 0 || m_ctx->snowParticleCount == 0) return;
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    m_ctx->snowShader->use();
+    m_ctx->snowShader->setMat4("uView", view);
+    m_ctx->snowShader->setMat4("uProjection", projection);
+    m_ctx->snowShader->setVec3("uPlayerPos", playerPos);
+    m_ctx->snowShader->setFloat("uTime", m_ctx->gameState->gameTime);
+    m_ctx->snowShader->setFloat("uSphereRadius", GameConfig::SNOW_SPHERE_RADIUS);
+    m_ctx->snowShader->setFloat("uFallSpeed", GameConfig::SNOW_PARTICLE_FALL_SPEED);
+    m_ctx->snowShader->setFloat("uParticleSize", GameConfig::SNOW_PARTICLE_SIZE);
+    m_ctx->snowShader->setFloat("uWindStrength", GameConfig::SNOW_WIND_STRENGTH);
+    m_ctx->snowShader->setFloat("uWindAngle", glm::radians(m_ctx->gameState->snowAngle));
+
+    glBindVertexArray(m_ctx->snowVAO);
+    glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, m_ctx->snowParticleCount);
+    glBindVertexArray(0);
+
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
 }

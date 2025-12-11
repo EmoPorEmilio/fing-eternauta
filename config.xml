@@ -23,7 +23,9 @@
 
     <Ground size="500.0" textureScale="0.5"/>
 
-    <Snow defaultSpeed="7.0" defaultAngle="20.0" defaultBlur="3.0"/>
+    <Snow defaultSpeed="7.0" defaultAngle="20.0" defaultBlur="3.0"
+          particleCount="10000" sphereRadius="20.0" particleFallSpeed="5.0"
+          particleSize="0.05" windStrength="5.0"/>
 
     <Cinematic duration="3.0" motionBlur="2.5"
                introCharacterYaw="225.0" introCharacterPos="-120.0, 0.1, -120.0"/>

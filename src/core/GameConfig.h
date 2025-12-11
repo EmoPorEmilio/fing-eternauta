@@ -58,10 +58,17 @@ inline float& LOD_SWITCH_DISTANCE = CONFIG.lodSwitchDistance;
 inline float& GROUND_SIZE = CONFIG.groundSize;
 inline float& GROUND_TEXTURE_SCALE = CONFIG.groundTextureScale;
 
-// Snow effect
+// Snow effect (2D overlay)
 inline float& SNOW_DEFAULT_SPEED = CONFIG.snowDefaultSpeed;
 inline float& SNOW_DEFAULT_ANGLE = CONFIG.snowDefaultAngle;
 inline float& SNOW_DEFAULT_BLUR = CONFIG.snowDefaultBlur;
+
+// Snow particles (3D billboards)
+inline int& SNOW_PARTICLE_COUNT = CONFIG.snowParticleCount;
+inline float& SNOW_SPHERE_RADIUS = CONFIG.snowSphereRadius;
+inline float& SNOW_PARTICLE_FALL_SPEED = CONFIG.snowParticleFallSpeed;
+inline float& SNOW_PARTICLE_SIZE = CONFIG.snowParticleSize;
+inline float& SNOW_WIND_STRENGTH = CONFIG.snowWindStrength;
 
 // Cinematic
 inline float& CINEMATIC_DURATION = CONFIG.cinematicDuration;

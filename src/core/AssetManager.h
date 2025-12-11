@@ -22,6 +22,7 @@ enum class AssetShader {
     Color,
     Sun,
     Comet,
+    Snow,
     Depth,
     SkinnedDepth,
     MotionBlur,
@@ -213,6 +214,7 @@ private:
         m_shaders[AssetShader::Color].loadFromFiles("shaders/color.vert", "shaders/color.frag");
         m_shaders[AssetShader::Sun].loadFromFiles("shaders/sun.vert", "shaders/sun.frag");
         m_shaders[AssetShader::Comet].loadFromFiles("shaders/comet.vert", "shaders/comet.frag");
+        m_shaders[AssetShader::Snow].loadFromFiles("shaders/snow.vert", "shaders/snow.frag");
         m_shaders[AssetShader::Depth].loadFromFiles("shaders/depth.vert", "shaders/depth.frag");
         m_shaders[AssetShader::SkinnedDepth].loadFromFiles("shaders/skinned_depth.vert", "shaders/depth.frag");
         m_shaders[AssetShader::MotionBlur].loadFromFiles("shaders/motion_blur.vert", "shaders/motion_blur.frag");

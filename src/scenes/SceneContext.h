@@ -80,6 +80,7 @@ struct SceneContext {
     Shader* motionBlurShader = nullptr;
     Shader* toonPostShader = nullptr;
     Shader* blitShader = nullptr;
+    Shader* snowShader = nullptr;
 
     // Textures
     GLuint snowTexture = 0;
@@ -134,6 +135,11 @@ struct SceneContext {
     float cometScale = 0.0f;
     glm::vec3 cometFallDir;
     glm::vec3 cometColor;
+
+    // Snow particle rendering data
+    GLuint snowVAO = 0;
+    GLuint snowInstanceVBO = 0;
+    int snowParticleCount = 0;
 
     // Light direction
     glm::vec3 lightDir;

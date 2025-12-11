@@ -9,6 +9,7 @@
 #include <iostream>
 #include <vector>
 #include <cfloat>
+#include <random>
 
 #include "src/ecs/Registry.h"
 #include "src/ecs/systems/InputSystem.h"
@@ -717,6 +718,62 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "Setup " << NUM_COMETS << " comet instances" << std::endl;
 
+    // Setup snow particle instances
+    const int snowParticleCount = GameConfig::SNOW_PARTICLE_COUNT;
+    const float snowSphereRadius = GameConfig::SNOW_SPHERE_RADIUS;
+
+    std::vector<glm::vec4> snowInstances(snowParticleCount);
+    {
+        std::mt19937 rng(54321);
+        std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+        std::uniform_real_distribution<float> seedDist(0.0f, 1.0f);
+
+        for (int i = 0; i < snowParticleCount; ++i) {
+            // Uniform distribution in sphere using rejection sampling
+            glm::vec3 pos;
+            do {
+                pos = glm::vec3(dist(rng), dist(rng), dist(rng));
+            } while (glm::length(pos) > 1.0f);
+            pos *= snowSphereRadius;
+
+            float seed = seedDist(rng);
+            snowInstances[i] = glm::vec4(pos.x, pos.y, pos.z, seed);
+        }
+    }
+
+    // Create snow VAO with quad vertices and instance buffer
+    GLuint snowVAO, snowQuadVBO, snowInstanceVBO;
+    glGenVertexArrays(1, &snowVAO);
+    glGenBuffers(1, &snowQuadVBO);
+    glGenBuffers(1, &snowInstanceVBO);
+
+    glBindVertexArray(snowVAO);
+
+    // Quad vertices (location 0)
+    float snowQuad[] = {
+        -0.5f, -0.5f,
+         0.5f, -0.5f,
+        -0.5f,  0.5f,
+         0.5f,  0.5f
+    };
+    glBindBuffer(GL_ARRAY_BUFFER, snowQuadVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(snowQuad), snowQuad, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // Instance data (location 1): xyz = position, w = seed
+    glBindBuffer(GL_ARRAY_BUFFER, snowInstanceVBO);
+    glBufferData(GL_ARRAY_BUFFER, snowInstances.size() * sizeof(glm::vec4), snowInstances.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribDivisor(1, 1);
+
+    glBindVertexArray(0);
+    std::cout << "Setup " << snowParticleCount << " snow particles" << std::endl;
+
+    // Get snow shader
+    Shader* snowShader = assetManager.getShader(AssetShader::Snow);
+
     // Motion blur state
     glm::mat4 prevViewProjection = glm::mat4(1.0f);
 
@@ -829,6 +886,12 @@ int main(int argc, char* argv[]) {
     sceneCtx.cometScale = COMET_SCALE;
     sceneCtx.cometFallDir = COMET_FALL_DIR;
     sceneCtx.cometColor = COMET_COLOR;
+
+    // Snow particle data
+    sceneCtx.snowShader = snowShader;
+    sceneCtx.snowVAO = snowVAO;
+    sceneCtx.snowInstanceVBO = snowInstanceVBO;
+    sceneCtx.snowParticleCount = snowParticleCount;
 
     // Light
     sceneCtx.lightDir = lightDir;

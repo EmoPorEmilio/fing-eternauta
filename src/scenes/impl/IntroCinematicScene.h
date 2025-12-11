@@ -124,11 +124,19 @@ public:
             ctx.snowTexture, ctx.shadowDepthTexture, ctx.planeVAO,
             GameConfig::FOG_DENSITY, GameConfig::FOG_COLOR);
 
-        // Render snow overlay
-        RenderHelpers::renderSnowOverlay(*ctx.overlayShader, ctx.overlayVAO, *ctx.gameState);
+        // Render sun
+        ctx.renderPipeline->renderSun(cinematicView, projection, cameraPos);
 
         // Render comets
         ctx.renderPipeline->renderComets(cinematicView, projection, cameraPos);
+
+        // Render 3D snow particles
+        if (protagonistT) {
+            ctx.renderPipeline->renderSnow(cinematicView, projection, protagonistT->position);
+        }
+
+        // Render snow overlay
+        RenderHelpers::renderSnowOverlay(*ctx.overlayShader, ctx.overlayVAO, *ctx.gameState);
 
         // === MOTION BLUR POST-PROCESS ===
         ctx.renderPipeline->applyMotionBlur(currentViewProjection,

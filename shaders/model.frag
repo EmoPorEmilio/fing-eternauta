@@ -147,6 +147,10 @@ void main()
                     yProjection * blendWeights.y +
                     zProjection * blendWeights.z;
 
+            // Desaturate building textures by 50%
+            float gray = luminance(color);
+            color = mix(color, vec3(gray), 0.5);
+
             // Sample and apply normal map if available
             if (uHasNormalMap == 1)
             {

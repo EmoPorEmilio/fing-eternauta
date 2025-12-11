@@ -142,6 +142,12 @@ public:
         // Render comets
         ctx.renderPipeline->renderComets(view, projection, cameraPos);
 
+        // Render 3D snow particles (centered on protagonist)
+        auto* protagonistT = ctx.registry->getTransform(ctx.protagonist);
+        if (protagonistT) {
+            ctx.renderPipeline->renderSnow(view, projection, protagonistT->position);
+        }
+
         // === TOON POST-PROCESSING ===
         if (ctx.gameState->toonShadingEnabled) {
             ctx.renderPipeline->applyToonPostProcess();
