@@ -2,146 +2,266 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include "../ecs/Registry.h"
-#include "../ecs/systems/RenderSystem.h"
-#include "../Shader.h"
-#include "../DebugRenderer.h"
 #include "../core/GameConfig.h"
-#include <vector>
+#include "../core/GameState.h"
+#include "../culling/BuildingCuller.h"
+#include "../Shader.h"
+#include "../ecs/Registry.h"
+#include "../ecs/components/Mesh.h"
 
-// Consolidates shadow mapping and scene rendering into reusable passes
+// Forward declaration to avoid circular include
+struct SceneContext;
+
+// Centralizes FBO management and post-processing effects
+// Eliminates duplicated rendering code across scenes
 class RenderPipeline {
 public:
-    struct ShadowConfig {
-        GLuint fbo = 0;
-        GLuint depthTexture = 0;
-        int width = GameConfig::SHADOW_MAP_SIZE;
-        int height = GameConfig::SHADOW_MAP_SIZE;
-        Shader* depthShader = nullptr;
-    };
-
-    struct RenderConfig {
-        Registry* registry = nullptr;
-        RenderSystem* renderSystem = nullptr;
-        Shader* groundShader = nullptr;
-        Shader* colorShader = nullptr;
-        Shader* overlayShader = nullptr;
-        DebugRenderer* axes = nullptr;
-        GLuint planeVAO = 0;
-        GLuint snowTexture = 0;
-        GLuint overlayVAO = 0;
-        float aspectRatio = 16.0f / 9.0f;
-        glm::vec3 lightDir = glm::normalize(GameConfig::LIGHT_DIR);
-    };
-
-    void setShadowConfig(const ShadowConfig& config) { m_shadowConfig = config; }
-    void setRenderConfig(const RenderConfig& config) { m_renderConfig = config; }
-
-    // Execute shadow pass for a set of entities
-    glm::mat4 renderShadowPass(const glm::vec3& focusPoint,
-                               const std::vector<Entity>& shadowCasters) {
-        float orthoSize = GameConfig::SHADOW_ORTHO_SIZE;
-        glm::vec3 lightPos = focusPoint + m_renderConfig.lightDir * GameConfig::SHADOW_DISTANCE;
-        glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize,
-                                                GameConfig::SHADOW_NEAR, GameConfig::SHADOW_FAR);
-        glm::mat4 lightView = glm::lookAt(lightPos, focusPoint, glm::vec3(0.0f, 1.0f, 0.0f));
-        glm::mat4 lightSpaceMatrix = lightProjection * lightView;
-
-        glViewport(0, 0, m_shadowConfig.width, m_shadowConfig.height);
-        glBindFramebuffer(GL_FRAMEBUFFER, m_shadowConfig.fbo);
-        glClear(GL_DEPTH_BUFFER_BIT);
-
-        m_shadowConfig.depthShader->use();
-        m_shadowConfig.depthShader->setMat4("uLightSpaceMatrix", lightSpaceMatrix);
-
-        for (Entity e : shadowCasters) {
-            auto* t = m_renderConfig.registry->getTransform(e);
-            if (t && t->position.y > -100.0f) {
-                m_shadowConfig.depthShader->setMat4("uModel", t->matrix());
-                auto* mg = m_renderConfig.registry->getMeshGroup(e);
-                if (mg) {
-                    for (const auto& mesh : mg->meshes) {
-                        glBindVertexArray(mesh.vao);
-                        glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
-                    }
-                }
-            }
-        }
-
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
-
-        return lightSpaceMatrix;
+    void init(SceneContext* ctx) {
+        m_ctx = ctx;
     }
 
-    // Render the 3D scene with shadows
-    void renderScene(const glm::mat4& view, const glm::mat4& projection,
-                     const glm::mat4& lightSpaceMatrix,
-                     const glm::vec3& viewPos,
-                     bool fogEnabled, bool shadowsEnabled = true) {
+    // ==================== FBO Management ====================
 
-        // Setup render system
-        m_renderConfig.renderSystem->setFogEnabled(fogEnabled);
-        m_renderConfig.renderSystem->setShadowsEnabled(shadowsEnabled);
-        m_renderConfig.renderSystem->setShadowMap(m_shadowConfig.depthTexture);
-        m_renderConfig.renderSystem->setLightSpaceMatrix(lightSpaceMatrix);
-        m_renderConfig.renderSystem->updateWithView(*m_renderConfig.registry,
-                                                     m_renderConfig.aspectRatio, view);
+    void beginShadowPass();
+    void endShadowPass();
+    void beginMainPass(bool useToonFBO = false);
+    void beginCinematicPass();
 
-        // Render ground plane
-        m_renderConfig.groundShader->use();
-        m_renderConfig.groundShader->setMat4("uView", view);
-        m_renderConfig.groundShader->setMat4("uProjection", projection);
-        m_renderConfig.groundShader->setMat4("uModel", glm::mat4(1.0f));
-        m_renderConfig.groundShader->setMat4("uLightSpaceMatrix", lightSpaceMatrix);
-        m_renderConfig.groundShader->setVec3("uLightDir", m_renderConfig.lightDir);
-        m_renderConfig.groundShader->setVec3("uViewPos", viewPos);
-        m_renderConfig.groundShader->setInt("uHasTexture", 1);
-        m_renderConfig.groundShader->setInt("uFogEnabled", fogEnabled ? 1 : 0);
-        m_renderConfig.groundShader->setInt("uShadowsEnabled", shadowsEnabled ? 1 : 0);
+    // ==================== Post-Processing ====================
 
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, m_renderConfig.snowTexture);
-        m_renderConfig.groundShader->setInt("uTexture", 0);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, m_shadowConfig.depthTexture);
-        m_renderConfig.groundShader->setInt("uShadowMap", 1);
+    void applyToonPostProcess();
+    void applyMotionBlur(const glm::mat4& currentVP, glm::mat4& prevVP, bool& initialized);
+    void finalResolveAndBlit();
 
-        glBindVertexArray(m_renderConfig.planeVAO);
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
-        glBindVertexArray(0);
-    }
+    // ==================== Common Rendering Helpers ====================
 
-    // Render debug axes
-    void renderAxes(const glm::mat4& viewProjection) {
-        m_renderConfig.colorShader->use();
-        m_renderConfig.colorShader->setMat4("uMVP", viewProjection);
-        m_renderConfig.axes->draw();
-    }
-
-    // Render snow overlay
-    void renderSnowOverlay(float gameTime, float snowSpeed, float snowAngle, float snowBlur) {
-        glDisable(GL_DEPTH_TEST);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        m_renderConfig.overlayShader->use();
-        m_renderConfig.overlayShader->setVec3("iResolution",
-            glm::vec3((float)GameConfig::WINDOW_WIDTH, (float)GameConfig::WINDOW_HEIGHT, 1.0f));
-        m_renderConfig.overlayShader->setFloat("iTime", gameTime);
-        m_renderConfig.overlayShader->setFloat("uSnowSpeed", snowSpeed);
-        m_renderConfig.overlayShader->setFloat("uSnowDirectionDeg", snowAngle);
-        m_renderConfig.overlayShader->setFloat("uMotionBlur", snowBlur);
-
-        glBindVertexArray(m_renderConfig.overlayVAO);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        glBindVertexArray(0);
-
-        glDisable(GL_BLEND);
-        glEnable(GL_DEPTH_TEST);
-    }
+    void renderShadowCasters(const glm::mat4& lightSpaceMatrix, const glm::vec3& cameraPos);
+    void renderBuildings(const BuildingRenderParams& params);
+    void renderComets(const glm::mat4& view, const glm::mat4& projection,
+                      const glm::vec3& cameraPos, const glm::vec3& fallDir,
+                      const glm::vec3& cometColor);
+    void renderComets(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
+    void renderSun(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
 
 private:
-    ShadowConfig m_shadowConfig;
-    RenderConfig m_renderConfig;
+    SceneContext* m_ctx = nullptr;
 };
+
+// Include SceneContext after class declaration to avoid circular dependency
+#include "../scenes/SceneContext.h"
+
+// ==================== Implementation ====================
+
+inline void RenderPipeline::beginShadowPass() {
+    glViewport(0, 0, GameConfig::SHADOW_MAP_SIZE, GameConfig::SHADOW_MAP_SIZE);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_ctx->shadowFBO);
+    glClear(GL_DEPTH_BUFFER_BIT);
+}
+
+inline void RenderPipeline::endShadowPass() {
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+}
+
+inline void RenderPipeline::beginMainPass(bool useToonFBO) {
+    GLuint targetFBO = useToonFBO ? m_ctx->toonFBO : m_ctx->msaaFBO;
+    glBindFramebuffer(GL_FRAMEBUFFER, targetFBO);
+    glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+    glClearColor(0.2f, 0.2f, 0.22f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
+
+inline void RenderPipeline::beginCinematicPass() {
+    glBindFramebuffer(GL_FRAMEBUFFER, m_ctx->cinematicMsaaFBO);
+    glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+    glClearColor(0.2f, 0.2f, 0.22f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
+
+inline void RenderPipeline::applyToonPostProcess() {
+    glBindFramebuffer(GL_FRAMEBUFFER, m_ctx->msaaFBO);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    m_ctx->toonPostShader->use();
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_ctx->toonColorTex);
+    m_ctx->toonPostShader->setInt("uSceneTex", 0);
+    m_ctx->toonPostShader->setVec2("uTexelSize", glm::vec2(
+        1.0f / GameConfig::WINDOW_WIDTH,
+        1.0f / GameConfig::WINDOW_HEIGHT));
+
+    glDisable(GL_DEPTH_TEST);
+    glBindVertexArray(m_ctx->overlayVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+    glEnable(GL_DEPTH_TEST);
+}
+
+inline void RenderPipeline::applyMotionBlur(const glm::mat4& currentVP, glm::mat4& prevVP, bool& initialized) {
+    // Resolve cinematic MSAA to motion blur FBO
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_ctx->cinematicMsaaFBO);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_ctx->motionBlurFBO);
+    glBlitFramebuffer(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
+                      0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
+                      GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+    // Apply motion blur effect to msaaFBO
+    glBindFramebuffer(GL_FRAMEBUFFER, m_ctx->msaaFBO);
+    glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_DEPTH_TEST);
+
+    m_ctx->motionBlurShader->use();
+
+    // Bind color buffer
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_ctx->motionBlurColorTex);
+    m_ctx->motionBlurShader->setInt("uColorBuffer", 0);
+
+    // Bind depth buffer
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_ctx->motionBlurDepthTex);
+    m_ctx->motionBlurShader->setInt("uDepthBuffer", 1);
+
+    // Pass matrices for velocity computation
+    m_ctx->motionBlurShader->setMat4("uViewProjection", currentVP);
+    m_ctx->motionBlurShader->setMat4("uInvViewProjection", glm::inverse(currentVP));
+
+    // On first frame, use current matrix as previous (no blur)
+    if (!initialized) {
+        prevVP = currentVP;
+    }
+    m_ctx->motionBlurShader->setMat4("uPrevViewProjection", prevVP);
+
+    // Blur parameters
+    m_ctx->motionBlurShader->setFloat("uBlurStrength", GameConfig::CINEMATIC_MOTION_BLUR);
+    m_ctx->motionBlurShader->setInt("uNumSamples", 16);
+
+    glBindVertexArray(m_ctx->overlayVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+
+    glEnable(GL_DEPTH_TEST);
+
+    // Store current view-projection for next frame
+    prevVP = currentVP;
+    initialized = true;
+}
+
+inline void RenderPipeline::finalResolveAndBlit() {
+    // Step 1: Resolve MSAA FBO to regular texture FBO
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_ctx->msaaFBO);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_ctx->resolveFBO);
+    glBlitFramebuffer(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
+                      0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
+                      GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
+    // Step 2: Blit resolved texture to screen
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_DEPTH_TEST);
+
+    m_ctx->blitShader->use();
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_ctx->resolveColorTex);
+    m_ctx->blitShader->setInt("uScreenTexture", 0);
+
+    glBindVertexArray(m_ctx->overlayVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+
+    glEnable(GL_DEPTH_TEST);
+}
+
+inline void RenderPipeline::renderShadowCasters(const glm::mat4& lightSpaceMatrix, const glm::vec3& cameraPos) {
+    // Render buildings to shadow map
+    m_ctx->buildingCuller->updateShadowCasters(lightSpaceMatrix, cameraPos, m_ctx->buildingMaxRenderDistance);
+    m_ctx->buildingCuller->renderShadows(*m_ctx->buildingBoxMesh, *m_ctx->depthInstancedShader, lightSpaceMatrix);
+
+    // Render FING building shadow
+    auto* t = m_ctx->registry->getTransform(m_ctx->fingBuilding);
+    auto* mg = m_ctx->registry->getMeshGroup(m_ctx->fingBuilding);
+    if (t && mg) {
+        m_ctx->depthShader->use();
+        m_ctx->depthShader->setMat4("uLightSpaceMatrix", lightSpaceMatrix);
+        m_ctx->depthShader->setMat4("uModel", t->matrix());
+        for (const auto& mesh : mg->meshes) {
+            glBindVertexArray(mesh.vao);
+            glDrawElements(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr);
+        }
+    }
+}
+
+inline void RenderPipeline::renderBuildings(const BuildingRenderParams& params) {
+    m_ctx->buildingCuller->render(*m_ctx->buildingBoxMesh, *m_ctx->buildingInstancedShader, params);
+}
+
+inline void RenderPipeline::renderComets(const glm::mat4& view, const glm::mat4& projection,
+                                          const glm::vec3& cameraPos, const glm::vec3& fallDir,
+                                          const glm::vec3& cometColor) {
+    if (!m_ctx->cometMeshGroup) return;
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    m_ctx->cometShader->use();
+    m_ctx->cometShader->setMat4("uView", view);
+    m_ctx->cometShader->setMat4("uProjection", projection);
+    m_ctx->cometShader->setFloat("uTime", m_ctx->gameState->gameTime);
+    m_ctx->cometShader->setVec3("uCameraPos", cameraPos);
+    m_ctx->cometShader->setFloat("uFallSpeed", m_ctx->cometFallSpeed);
+    m_ctx->cometShader->setFloat("uCycleTime", m_ctx->cometCycleTime);
+    m_ctx->cometShader->setFloat("uFallDistance", m_ctx->cometFallDistance);
+    m_ctx->cometShader->setVec3("uFallDirection", fallDir);
+    m_ctx->cometShader->setFloat("uScale", m_ctx->cometScale);
+    m_ctx->cometShader->setVec3("uCometColor", cometColor);
+    m_ctx->cometShader->setInt("uDebugMode", 0);
+    m_ctx->cometShader->setInt("uTexture", 0);
+    m_ctx->cometShader->setFloat("uTrailStretch", 15.0f);
+    m_ctx->cometShader->setFloat("uGroundY", 0.0f);
+
+    for (const auto& mesh : m_ctx->cometMeshGroup->meshes) {
+        if (mesh.texture != 0) {
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, mesh.texture);
+            m_ctx->cometShader->setInt("uHasTexture", 1);
+        } else {
+            m_ctx->cometShader->setInt("uHasTexture", 0);
+        }
+
+        glBindVertexArray(mesh.vao);
+        glDrawElementsInstanced(GL_TRIANGLES, mesh.indexCount, mesh.indexType, nullptr, m_ctx->numComets);
+    }
+    glBindVertexArray(0);
+
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_DEPTH_TEST);
+}
+
+inline void RenderPipeline::renderComets(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos) {
+    renderComets(view, projection, cameraPos, m_ctx->cometFallDir, m_ctx->cometColor);
+}
+
+inline void RenderPipeline::renderSun(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos) {
+    glm::vec3 sunWorldPos = cameraPos + m_ctx->lightDir * 400.0f;
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    m_ctx->sunShader->use();
+    m_ctx->sunShader->setMat4("uView", view);
+    m_ctx->sunShader->setMat4("uProjection", projection);
+    m_ctx->sunShader->setVec3("uSunWorldPos", sunWorldPos);
+    m_ctx->sunShader->setFloat("uSize", 30.0f);
+
+    glBindVertexArray(m_ctx->sunVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
+}

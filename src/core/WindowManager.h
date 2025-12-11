@@ -43,7 +43,7 @@ public:
 
         // Create window
         m_window = SDL_CreateWindow(
-            GameConfig::WINDOW_TITLE,
+            GameConfig::WINDOW_TITLE.c_str(),
             GameConfig::WINDOW_WIDTH, GameConfig::WINDOW_HEIGHT,
             SDL_WINDOW_OPENGL
         );
@@ -118,9 +118,9 @@ public:
     bool isInitialized() const { return m_initialized; }
 
     // Convenience accessors using GameConfig
-    static constexpr int width() { return GameConfig::WINDOW_WIDTH; }
-    static constexpr int height() { return GameConfig::WINDOW_HEIGHT; }
-    static constexpr float aspectRatio() {
+    static int width() { return GameConfig::WINDOW_WIDTH; }
+    static int height() { return GameConfig::WINDOW_HEIGHT; }
+    static float aspectRatio() {
         return static_cast<float>(GameConfig::WINDOW_WIDTH) / static_cast<float>(GameConfig::WINDOW_HEIGHT);
     }
 

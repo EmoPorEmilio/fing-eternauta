@@ -23,6 +23,10 @@ struct BuildingRenderParams {
     float textureScale = 4.0f;
     bool fogEnabled = false;
     bool shadowsEnabled = true;
+    // Fog parameters
+    glm::vec3 fogColor = glm::vec3(0.5f, 0.5f, 0.55f);
+    float fogDensity = 0.02f;
+    float fogDesaturation = 0.8f;
 };
 
 // Orchestrates building visibility culling using octree + frustum
@@ -102,6 +106,11 @@ public:
         shader.setFloat("uTextureScale", params.textureScale);
         shader.setInt("uFogEnabled", params.fogEnabled ? 1 : 0);
         shader.setInt("uShadowsEnabled", params.shadowsEnabled ? 1 : 0);
+
+        // Fog parameters
+        shader.setVec3("uFogColor", params.fogColor);
+        shader.setFloat("uFogDensity", params.fogDensity);
+        shader.setFloat("uFogDesaturation", params.fogDesaturation);
 
         // Bind textures
         if (params.texture) {

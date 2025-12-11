@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GameConfig>
+    <!-- Window Settings -->
+    <Window>
+        <width>1280</width>
+        <height>720</height>
+        <title>El Eternauta - FING</title>
+    </Window>
+
+    <!-- Graphics Settings -->
+    <Graphics>
+        <shadowMapSize>2048</shadowMapSize>
+        <shadowOrthoSize>100.0</shadowOrthoSize>
+        <shadowNear>1.0</shadowNear>
+        <shadowFar>200.0</shadowFar>
+        <shadowDistance>80.0</shadowDistance>
+    </Graphics>
+
+    <!-- Fog Settings -->
+    <Fog>
+        <density>0.02</density>
+        <desaturation>0.8</desaturation>
+        <colorR>0.15</colorR>
+        <colorG>0.15</colorG>
+        <colorB>0.17</colorB>
+    </Fog>
+
+    <!-- Player Settings -->
+    <Player>
+        <moveSpeed>3.0</moveSpeed>
+        <turnSpeed>10.0</turnSpeed>
+        <radius>0.4</radius>
+        <scale>0.01</scale>
+    </Player>
+
+    <!-- Camera Settings -->
+    <Camera>
+        <fov>60.0</fov>
+        <near>0.1</near>
+        <far>500.0</far>
+        <followDistance>2.2</followDistance>
+        <followHeight>1.2</followHeight>
+        <shoulderOffset>2.4</shoulderOffset>
+        <lookAhead>5.0</lookAhead>
+    </Camera>
+
+    <!-- Building Settings -->
+    <Buildings>
+        <gridSize>100</gridSize>
+        <width>8.0</width>
+        <depth>8.0</depth>
+        <minHeight>15.0</minHeight>
+        <maxHeight>40.0</maxHeight>
+        <streetWidth>12.0</streetWidth>
+        <renderRadius>3</renderRadius>
+        <textureScale>4.0</textureScale>
+    </Buildings>
+
+    <!-- LOD Settings -->
+    <LOD>
+        <switchDistance>210.0</switchDistance>
+    </LOD>
+
+    <!-- Ground Settings -->
+    <Ground>
+        <size>500.0</size>
+        <textureScale>0.5</textureScale>
+    </Ground>
+
+    <!-- Snow Effect Settings -->
+    <Snow>
+        <defaultSpeed>7.0</defaultSpeed>
+        <defaultAngle>20.0</defaultAngle>
+        <defaultBlur>3.0</defaultBlur>
+    </Snow>
+
+    <!-- Cinematic Settings -->
+    <Cinematic>
+        <duration>3.0</duration>
+        <motionBlur>2.5</motionBlur>
+        <introCharacterYaw>225.0</introCharacterYaw>
+        <introCharacterPosX>-120.0</introCharacterPosX>
+        <introCharacterPosY>0.1</introCharacterPosY>
+        <introCharacterPosZ>-120.0</introCharacterPosZ>
+    </Cinematic>
+
+    <!-- FING Building Position -->
+    <FingBuilding>
+        <posX>80.0</posX>
+        <posY>10.0</posY>
+        <posZ>80.0</posZ>
+    </FingBuilding>
+
+    <!-- Light Direction -->
+    <Light>
+        <dirX>0.5</dirX>
+        <dirY>1.0</dirY>
+        <dirZ>0.3</dirZ>
+    </Light>
+
+    <!-- UI Settings -->
+    <UI>
+        <introHeaderX>730.0</introHeaderX>
+        <introHeaderY>80.0</introHeaderY>
+        <introBodyLeftMargin>45.0</introBodyLeftMargin>
+        <introBodyStartY>180.0</introBodyStartY>
+        <introLineHeight>100.0</introLineHeight>
+        <typewriterCharDelay>0.04</typewriterCharDelay>
+        <typewriterLineDelay>0.5</typewriterLineDelay>
+    </UI>
+</GameConfig>

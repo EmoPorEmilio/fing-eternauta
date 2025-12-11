@@ -353,14 +353,17 @@ if (position.y < groundLevel) {
 |-----------|------|
 | Transform | position, rotation (quaternion), scale |
 | MeshGroup | VAO, index count, texture handles |
-| Renderable | shader type, mesh offset |
+| Renderable | shader type (Color/Model/Skinned/Terrain), mesh offset |
 | Camera | FOV, near/far planes, active flag |
 | Skeleton | bone matrices, joint hierarchy |
-| Animation | clip index, time, playing state |
+| Animation | clip index, time, playing state, clips vector |
 | RigidBody | velocity, gravity, grounded flag |
 | PlayerController | move speed, turn speed |
 | FacingDirection | yaw angle, turn speed |
 | FollowTarget | camera-player relationship |
+| BoxCollider | half extents, offset |
+| UIText | text, fontId, anchor, offset, color, visible |
+| AABB | min/max bounds for collision/culling |
 
 ### 13.3 Render System
 Iterates all entities with Transform + MeshGroup + Renderable, setting uniforms and issuing draw calls.
@@ -455,23 +458,50 @@ src/
 │   └── Registry.h      # Entity-component storage
 ├── assets/
 │   └── AssetLoader.cpp # glTF/GLB parsing
+├── core/
+│   ├── GameConfig.h    # Compile-time constants
+│   ├── GameState.h     # Runtime state variables
+│   └── WindowManager.h # SDL/OpenGL context
+├── culling/
+│   ├── BuildingCuller.h    # Octree + frustum culling
+│   ├── Frustum.h           # Frustum plane extraction
+│   └── Octree.h            # Spatial partitioning
 ├── procedural/
 │   └── BuildingGenerator.h  # Procedural mesh generation
-├── spatial/
-│   └── SpatialGrid.h   # Spatial culling structures
+├── rendering/
+│   ├── SceneRenderer.h     # 3D scene rendering abstraction
+│   ├── InstancedRenderer.h # GPU instancing utilities
+│   └── RenderPipeline.h    # Render pipeline management
+├── scenes/
+│   ├── IScene.h            # Scene interface
+│   ├── SceneContext.h      # Shared resource container
+│   ├── SceneManager.h      # Scene lifecycle
+│   ├── RenderHelpers.h     # Shared rendering utilities
+│   └── impl/               # Scene implementations
 ├── ui/
 │   ├── FontManager.h   # Font loading
 │   └── TextCache.h     # Text texture caching
 └── Shader.h            # Shader compilation/linking
 
 shaders/
-├── model.vert/frag     # Standard lit shader
-├── skinned.vert        # Skeletal animation shader
-├── color.vert/frag     # Debug/solid color shader
-├── ui.vert/frag        # 2D UI rendering
-├── minimap.vert/frag   # Circular minimap
+├── model.vert/frag         # Standard lit shader
+├── skinned.vert            # Skeletal animation shader
+├── color.vert/frag         # Debug/solid color shader
+├── ui.vert/frag            # 2D UI rendering
+├── minimap.vert/frag       # Circular minimap
 ├── minimap_rect.vert/frag  # Building footprints
-└── terrain.vert/frag   # Ground plane shader
+├── terrain.vert/frag       # Ground plane shader
+├── building_instanced.vert # Instanced building rendering
+├── depth.vert/frag         # Shadow pass depth shader
+├── depth_instanced.vert    # Instanced shadow pass
+├── comet.vert/frag         # Animated comet effect
+├── sun.vert/frag           # Sun billboard
+├── motion_blur.vert/frag   # Velocity-based motion blur
+├── toon_post.vert/frag     # Comic/toon post-process
+├── shadertoy_overlay.vert/frag  # Procedural snow effect
+├── solid_overlay.vert/frag # Solid color overlay
+├── fullscreen.vert         # Fullscreen quad vertex shader
+└── blit.frag               # Simple texture blit
 ```
 
 ---
@@ -830,3 +860,451 @@ This creates smooth sliding behavior along walls instead of stopping abruptly.
 | GLM | Math library (vectors, matrices, quaternions) |
 | stb_image | Image loading |
 | cgltf | glTF/GLB parsing |
+
+---
+
+## 25. Scene System Architecture
+
+### 25.1 Overview
+The scene system provides a clean separation between game states (menu, gameplay, cinematics) using an OOP-based scene management approach that works alongside the ECS architecture.
+
+**Design Philosophy: Hybrid ECS + OOP**
+- **ECS** handles entities, components, and low-level systems (rendering, physics, animation)
+- **OOP Scenes** handle high-level game flow, state transitions, and scene-specific logic
+- This is a pragmatic approach used by many production engines (Unity, Unreal)
+
+### 25.2 IScene Interface
+Base interface for all game scenes with lifecycle methods:
+
+```cpp
+class IScene {
+public:
+    virtual ~IScene() = default;
+    virtual void onEnter(SceneContext& ctx) = 0;   // Called when scene becomes active
+    virtual void update(SceneContext& ctx) = 0;    // Called every frame
+    virtual void render(SceneContext& ctx) = 0;    // Called every frame after update
+    virtual void onExit(SceneContext& ctx) = 0;    // Called when leaving scene
+};
+```
+
+**Lifecycle Flow:**
+```
+Scene A (active) → switchTo(B) → A.onExit() → B.onEnter() → B.update/render loop
+```
+
+### 25.3 SceneContext (Dependency Injection)
+A struct containing all shared resources passed to scenes. Scenes don't own these resources - they're owned by `main.cpp`:
+
+```cpp
+struct SceneContext {
+    // Core ECS
+    Registry* registry;
+    GameState* gameState;
+    SceneManager* sceneManager;
+
+    // Input (updated each frame)
+    InputSystem* inputSystem;
+    InputState input;
+    float dt;
+    float aspectRatio;
+
+    // Systems
+    RenderSystem* renderSystem;
+    UISystem* uiSystem;
+    MinimapSystem* minimapSystem;
+    CinematicSystem* cinematicSystem;
+    AnimationSystem* animationSystem;
+    // ... more systems
+
+    // Shaders, FBOs, textures, VAOs
+    Shader* groundShader;
+    GLuint msaaFBO;
+    GLuint snowTexture;
+    // ... more GPU resources
+
+    // Key entities
+    Entity protagonist;
+    Entity camera;
+    Entity fingBuilding;
+};
+```
+
+**Benefits:**
+- Scenes remain stateless and testable
+- No global state or singletons
+- Clear ownership model (main.cpp owns everything)
+- Easy to mock for testing
+
+### 25.4 SceneManager
+Handles scene registration, transitions, and lifecycle orchestration:
+
+```cpp
+class SceneManager {
+public:
+    void registerScene(SceneType type, std::unique_ptr<IScene> scene);
+    void switchTo(SceneType type);           // Request transition (deferred)
+    void processTransitions(SceneContext& ctx);  // Execute pending transitions
+    void update(SceneContext& ctx);
+    void render(SceneContext& ctx);
+
+    SceneType current() const;
+    SceneType previous() const;              // For pause menu resume
+
+private:
+    std::unordered_map<SceneType, std::unique_ptr<IScene>> m_scenes;
+    SceneType m_current = SceneType::MainMenu;
+    SceneType m_previous = SceneType::MainMenu;
+    SceneType m_pending = SceneType::MainMenu;
+    bool m_hasPending = false;
+};
+```
+
+**Deferred Transitions:**
+Scene switches are deferred to prevent issues when switching mid-update:
+```cpp
+void switchTo(SceneType type) {
+    m_pending = type;
+    m_hasPending = true;  // Processed next frame
+}
+```
+
+### 25.5 Scene Types
+```cpp
+enum class SceneType {
+    MainMenu,        // Static backdrop, menu navigation
+    IntroText,       // Typewriter text reveal
+    IntroCinematic,  // Camera path with motion blur
+    PlayGame,        // Full gameplay with all systems
+    GodMode,         // Free camera debug mode
+    PauseMenu        // Settings overlay
+};
+```
+
+### 25.6 Scene Implementations
+
+#### MainMenuScene
+- Static camera backdrop showing FING building
+- Falling comets in background
+- 85% black overlay for readability
+- Up/Down navigation, Enter to select
+
+#### IntroTextScene
+- Typewriter effect using per-character reveal
+- Multiple lines with configurable delays
+- Skip with Enter/Escape
+
+#### IntroCinematicScene
+- NURBS camera path animation
+- GPU Gems velocity-based motion blur
+- Shadow pass + full scene rendering
+- Transitions to PlayGame on completion
+
+#### PlayGameScene
+- Full gameplay: player movement, camera follow
+- Shadow mapping with PCF
+- Building collision (player and camera)
+- Minimap with markers
+- Toon post-processing (optional)
+
+#### GodModeScene
+- Free camera (WASD + mouse)
+- No shadows for performance
+- Debug camera position logging (P key)
+- Useful for level design and debugging
+
+#### PauseMenuScene
+- Black background with UI overlay
+- Settings toggles: Fog, Snow, Toon mode
+- Slider adjustments: Snow speed, angle, blur
+- Returns to previous scene (PlayGame or GodMode)
+
+### 25.7 Rendering Pipeline in Scenes
+
+Each scene manages its own rendering pipeline:
+
+```cpp
+void PlayGameScene::render(SceneContext& ctx) {
+    // 1. Shadow pass
+    renderShadowPass(ctx, lightSpaceMatrix, cameraPos);
+
+    // 2. Main render to MSAA FBO (or toon FBO if enabled)
+    GLuint targetFBO = ctx.gameState->toonShadingEnabled ? ctx.toonFBO : ctx.msaaFBO;
+    glBindFramebuffer(GL_FRAMEBUFFER, targetFBO);
+
+    // 3. Render scene content
+    ctx.renderSystem->update(*ctx.registry, ctx.aspectRatio);
+    renderBuildings(ctx, view, projection, lightSpaceMatrix, cameraPos);
+    RenderHelpers::renderGroundPlane(...);
+    renderSun(...);
+    renderComets(...);
+    RenderHelpers::renderSnowOverlay(...);
+
+    // 4. Toon post-processing (if enabled)
+    if (ctx.gameState->toonShadingEnabled) {
+        renderToonPostProcess(ctx);
+    }
+
+    // 5. Minimap and UI
+    ctx.minimapSystem->render(...);
+    ctx.uiSystem->update(...);
+}
+```
+
+### 25.8 RenderHelpers (Shared Rendering Code)
+Static utility functions for common rendering tasks shared across scenes:
+
+```cpp
+namespace RenderHelpers {
+    // Compute light-space matrix for shadow mapping
+    glm::mat4 computeLightSpaceMatrix(const glm::vec3& focusPoint, const glm::vec3& lightDir);
+
+    // Render textured ground plane with optional shadows
+    void renderGroundPlane(Shader& shader, const glm::mat4& view, const glm::mat4& projection,
+                           const glm::mat4& lightSpaceMatrix, const glm::vec3& lightDir,
+                           const glm::vec3& viewPos, bool fogEnabled, bool shadowsEnabled,
+                           GLuint texture, GLuint shadowMap, GLuint vao);
+
+    // Render fullscreen snow overlay
+    void renderSnowOverlay(Shader& shader, GLuint vao, const GameState& state);
+
+    // Configure render system for shadow/lighting
+    void setupRenderSystem(RenderSystem& rs, bool fog, bool shadows,
+                           GLuint shadowTex, const glm::mat4& lightSpace);
+
+    // LOD switching for FING building
+    void updateFingLOD(Registry& reg, GameState& state, Entity fingBuilding,
+                       const glm::vec3& viewerPos, MeshGroup& highDetail,
+                       MeshGroup& lowDetail, float switchDistance);
+}
+```
+
+### 25.9 MSAA Resolve (Final Pass)
+The MSAA resolve happens in `main.cpp` after scene rendering, shared by all 3D scenes:
+
+```cpp
+// In game loop, after sceneManager.render(sceneCtx)
+if (currentScene == SceneType::IntroCinematic ||
+    currentScene == SceneType::PlayGame ||
+    currentScene == SceneType::GodMode) {
+
+    // Step 1: Resolve MSAA FBO to regular texture FBO
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, msaaFBO);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, resolveFBO);
+    glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
+                      GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
+    // Step 2: Blit resolved texture to screen
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    blitShader.use();
+    glBindTexture(GL_TEXTURE_2D, resolveColorTex);
+    // Draw fullscreen quad
+}
+```
+
+### 25.10 File Structure After Refactoring
+
+```
+src/
+├── scenes/
+│   ├── IScene.h              # Base interface
+│   ├── SceneContext.h        # Shared resource container
+│   ├── SceneManager.h        # Scene lifecycle management
+│   ├── RenderHelpers.h       # Shared rendering utilities
+│   └── impl/
+│       ├── MainMenuScene.h
+│       ├── IntroTextScene.h
+│       ├── IntroCinematicScene.h
+│       ├── PlayGameScene.h
+│       ├── GodModeScene.h
+│       └── PauseMenuScene.h
+├── ecs/
+│   ├── components/           # Data-only structs
+│   ├── systems/              # ECS processing logic
+│   └── Registry.h            # Entity-component storage
+├── core/
+│   ├── GameConfig.h          # Compile-time constants
+│   ├── GameState.h           # Runtime state variables
+│   └── WindowManager.h       # SDL/OpenGL context
+└── ...
+
+main.cpp                      # ~1170 lines (down from ~1990)
+  - Initialization
+  - Asset loading
+  - Entity creation
+  - SceneContext population
+  - Game loop shell
+  - MSAA resolve
+  - Cleanup
+```
+
+---
+
+## 26. Shadow Mapping
+
+### 26.1 Overview
+Directional shadow mapping using a dedicated depth-only render pass.
+
+### 26.2 Shadow Pass
+```cpp
+// Configure shadow FBO
+glViewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);  // 2048x2048
+glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+glClear(GL_DEPTH_BUFFER_BIT);
+
+// Compute light-space matrix centered on player
+glm::vec3 lightPos = playerPos + lightDir * SHADOW_DISTANCE;
+glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize,
+                                        SHADOW_NEAR, SHADOW_FAR);
+glm::mat4 lightView = glm::lookAt(lightPos, playerPos, glm::vec3(0, 1, 0));
+glm::mat4 lightSpaceMatrix = lightProjection * lightView;
+
+// Render shadow casters
+depthShader.use();
+depthShader.setMat4("uLightSpaceMatrix", lightSpaceMatrix);
+// ... render buildings and FING
+```
+
+### 26.3 Shadow Sampling (Main Pass)
+```glsl
+// In fragment shader
+float shadow = 0.0;
+vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+projCoords = projCoords * 0.5 + 0.5;  // [-1,1] -> [0,1]
+
+float closestDepth = texture(uShadowMap, projCoords.xy).r;
+float currentDepth = projCoords.z;
+float bias = 0.005;  // Prevents shadow acne
+
+shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
+```
+
+---
+
+## 27. Motion Blur (Cinematic)
+
+### 27.1 GPU Gems Velocity-Based Motion Blur
+Used during intro cinematic for smooth camera movement.
+
+### 27.2 Pipeline
+1. Render scene to MSAA FBO
+2. Resolve MSAA to motion blur FBO (color + depth)
+3. Apply motion blur post-process
+4. Output to final MSAA FBO for resolve
+
+### 27.3 Velocity Reconstruction
+```glsl
+// Reconstruct world position from depth
+vec4 clipPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+vec4 worldPos = uInvViewProjection * clipPos;
+worldPos /= worldPos.w;
+
+// Compute previous frame position
+vec4 prevClip = uPrevViewProjection * worldPos;
+prevClip /= prevClip.w;
+
+// Velocity in screen space
+vec2 velocity = (currentUV - prevUV) * uBlurStrength;
+```
+
+### 27.4 Blur Accumulation
+```glsl
+vec3 color = vec3(0.0);
+for (int i = 0; i < uNumSamples; i++) {
+    vec2 offset = velocity * (float(i) / float(uNumSamples - 1) - 0.5);
+    color += texture(uColorBuffer, uv + offset).rgb;
+}
+color /= float(uNumSamples);
+```
+
+---
+
+## 28. Toon/Comic Post-Processing
+
+### 28.1 Overview
+Optional stylized rendering with edge detection and color quantization.
+
+### 28.2 Pipeline
+1. Render scene to toonFBO (non-MSAA texture)
+2. Apply toon post-process shader
+3. Output to MSAA FBO for final resolve
+
+### 28.3 Edge Detection (Sobel)
+```glsl
+// Sample neighbors for edge detection
+float samples[9];
+// ... gather 3x3 neighborhood luminance
+
+// Sobel kernels
+float gx = samples[0] - samples[2] + 2.0*(samples[3] - samples[5]) + samples[6] - samples[8];
+float gy = samples[0] - samples[6] + 2.0*(samples[1] - samples[7]) + samples[2] - samples[8];
+float edge = sqrt(gx*gx + gy*gy);
+
+// Draw black edge lines
+if (edge > edgeThreshold) {
+    fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+}
+```
+
+---
+
+## 29. Comet Sky Effect
+
+### 29.1 Instanced Rendering
+12 comets rendered with a single instanced draw call:
+
+```cpp
+// Instance data: position.xyz + timeOffset.w
+std::vector<glm::vec4> cometInstances(NUM_COMETS);
+for (int i = 0; i < NUM_COMETS; i++) {
+    cometInstances[i] = glm::vec4(pos.x, pos.y, pos.z, randomTimeOffset);
+}
+
+// Setup instance VBO
+glBindVertexArray(cometMesh.vao);
+glBindBuffer(GL_ARRAY_BUFFER, cometInstanceVBO);
+glEnableVertexAttribArray(3);
+glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4), 0);
+glVertexAttribDivisor(3, 1);  // Per-instance
+```
+
+### 29.2 Animation in Shader
+```glsl
+// Compute falling position based on time
+float t = mod(uTime + aInstanceData.w, uCycleTime) / uCycleTime;
+vec3 offset = uFallDirection * t * uFallDistance;
+vec3 worldPos = aInstanceData.xyz + offset * uFallSpeed;
+
+// Stretch mesh along fall direction for trail effect
+vec3 stretchedPos = aPosition;
+stretchedPos += uFallDirection * aPosition.y * uTrailStretch;
+```
+
+---
+
+## 30. Snow Overlay Effect
+
+### 30.1 Shadertoy-Style Fullscreen Effect
+Procedural snow particles rendered as a post-process overlay:
+
+```glsl
+// Layered noise for depth
+for (int layer = 0; layer < 3; layer++) {
+    float scale = 1.0 + float(layer) * 0.5;
+    vec2 p = uv * scale + vec2(uTime * uSpeed, uTime * 0.2);
+
+    // Simplex noise for particle positions
+    float n = snoise(p * 100.0);
+
+    // Fade particles based on wind angle
+    float angle = atan(uWindDir.y, uWindDir.x);
+    float fade = 1.0 - abs(dot(normalize(p), uWindDir));
+
+    snow += n * fade * layerAlpha[layer];
+}
+```
+
+### 30.2 Configurable Parameters
+- **Speed**: Particle fall rate (0.1 - 10.0)
+- **Angle**: Wind direction (-180° to 180°)
+- **Motion Blur**: Trail length (0.0 - 5.0)
+- **Enabled**: Toggle via pause menu

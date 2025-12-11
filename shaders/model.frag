@@ -17,10 +17,10 @@ uniform int uShadowsEnabled;
 uniform int uTriplanarMapping;  // Use world-space UV projection
 uniform float uTextureScale;    // How many world units per texture repeat (default 4.0)
 
-// Fog parameters
-const vec3 fogColor = vec3(0.12, 0.14, 0.2);  // Dark bluish gray
-const float fogDensity = 0.004;  // Low density so FING visible at ~300 units
-const float fogDesaturation = 0.8;  // How much to desaturate at max fog
+// Fog parameters (configurable via uniforms, with defaults matching GameConfig)
+uniform vec3 uFogColor;         // Default: vec3(0.5, 0.5, 0.55)
+uniform float uFogDensity;      // Default: 0.02
+uniform float uFogDesaturation; // Default: 0.8
 
 out vec4 FragColor;
 
@@ -192,17 +192,22 @@ void main()
     vec3 finalColor = litColor;
 
     if (uFogEnabled == 1) {
+        // Use uniform density, fallback to default if not set
+        float density = uFogDensity > 0.0 ? uFogDensity : 0.02;
+        float desaturation = uFogDesaturation > 0.0 ? uFogDesaturation : 0.8;
+        vec3 fogCol = (uFogColor.r + uFogColor.g + uFogColor.b) > 0.0 ? uFogColor : vec3(0.5, 0.5, 0.55);
+
         // Exponential squared fog
         float distance = length(vFragPos - uViewPos);
-        float fogFactor = 1.0 - exp(-pow(fogDensity * distance, 2.0));
+        float fogFactor = 1.0 - exp(-pow(density * distance, 2.0));
         fogFactor = clamp(fogFactor, 0.0, 1.0);
 
         // Desaturate based on fog amount
         float gray = luminance(litColor);
-        vec3 desaturated = mix(litColor, vec3(gray), fogFactor * fogDesaturation);
+        vec3 desaturated = mix(litColor, vec3(gray), fogFactor * desaturation);
 
         // Blend with fog color
-        finalColor = mix(desaturated, fogColor, fogFactor);
+        finalColor = mix(desaturated, fogCol, fogFactor);
     }
 
     FragColor = vec4(finalColor, 1.0);
