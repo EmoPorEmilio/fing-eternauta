@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <GameConfig>
-    <Window width="1920" height="1080" fullscreen="yes" title="El Eternauta - FING"/>
+    <Window width="1080" height="720" fullscreen="no" title="El Eternauta - FING"/>
 
     <Graphics shadowMapSize="4096" shadowOrthoSize="150.0"
               shadowNear="1.0" shadowFar="400.0" shadowDistance="150.0"/>
@@ -24,7 +24,7 @@
     <Ground size="500.0" textureScale="0.5"/>
 
     <Snow defaultSpeed="7.0" defaultAngle="20.0" defaultBlur="3.0"
-          particleCount="10000" sphereRadius="20.0" particleFallSpeed="5.0"
+          particleCount="8000" sphereRadius="20.0" particleFallSpeed="5.0"
           particleSize="0.05" windStrength="5.0"/>
 
     <Cinematic duration="3.0" motionBlur="2.5"

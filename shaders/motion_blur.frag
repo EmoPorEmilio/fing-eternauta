@@ -32,7 +32,8 @@ void main()
     prevClipPos /= prevClipPos.w;  // Perspective divide
 
     // Step 5: Compute velocity in screen space (NDC difference)
-    // This is where the pixel WAS in the previous frame vs where it IS now
+    // GPU Gems 3: velocity = (currentPos - previousPos) / 2
+    // This gives us the direction the pixel moved FROM previous TO current frame
     vec2 velocity = (clipPos.xy - prevClipPos.xy) * 0.5;  // NDC to UV scale
 
     // Scale velocity by blur strength
@@ -46,12 +47,19 @@ void main()
     }
 
     // Step 6: Sample along the velocity vector and accumulate
+    // GPU Gems 3: Sample from where the pixel WAS (previous position) to where it IS (current)
+    // We sample backwards along the velocity direction (from current toward previous)
     vec3 color = vec3(0.0);
 
+    // Fade blur strength near screen edges to avoid artifacts
+    vec2 edgeDist = min(vTexCoord, vec2(1.0) - vTexCoord);
+    float edgeFade = smoothstep(0.0, 0.1, min(edgeDist.x, edgeDist.y));
+
     for (int i = 0; i < uNumSamples; ++i) {
-        // Sample from current position toward where the pixel came from
-        float t = float(i) / float(uNumSamples - 1) - 0.5;  // -0.5 to 0.5 (centered)
-        vec2 sampleUV = vTexCoord + velocity * t;
+        // Sample from current position backward toward where the pixel came from
+        // t ranges from 0 (current position) to 1 (full velocity backward)
+        float t = float(i) / float(uNumSamples - 1);
+        vec2 sampleUV = vTexCoord - velocity * t * edgeFade;
 
         // Clamp to valid UV range
         sampleUV = clamp(sampleUV, vec2(0.001), vec2(0.999));

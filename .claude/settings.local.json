@@ -1,37 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(powershell.exe:*)",
-      "Bash(MSBuild.exe:*)",
-      "Bash(timeout:*)",
-      "Bash(mkdir -p:*)",
-      "Bash(cat:*)",
-      "Bash(wc:*)",
-      "Bash(del \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\PLAN.md\")",
-      "Bash(dir:*)",
-      "Bash(.x64Debugfing-eternauta.exe)",
-      "Bash(cmd.exe /c \"taskkill /F /IM fing-eternauta.exe\")",
-      "Bash(cmd.exe /c \"taskkill /F /IM fing-eternauta.exe 2>nul\")",
-      "Bash(cmd.exe /c \"MSBuild.exe fing-eternauta.sln /p:Configuration=Debug /p:Platform=x64 /v:m /nologo 2>&1\")",
-      "Bash(cmd.exe /c \"MSBuild.exe fing-eternauta.sln -p:Configuration=Debug -p:Platform=x64 -verbosity:minimal 2>&1\")",
-      "Bash(cmd.exe /c \"MSBuild.exe c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\fing-eternauta.sln /p:Configuration=Debug /p:Platform=x64 /v:m /nologo 2>&1\")",
-      "Bash(cmd.exe /c \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\x64\\Debug\\fing-eternauta.exe\")",
-      "Bash(del \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\ARCHITECTURE_IMPROVEMENTS.md\")",
-      "Bash(cmd.exe /c \"del c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\PLAN.md\")",
-      "Bash(cmd.exe /c \"del c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\ARCHITECTURE_IMPROVEMENTS.md\")",
-      "Bash(del /f \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\PLAN.md\")",
-      "Bash(del /f \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\ARCHITECTURE_IMPROVEMENTS.md\")",
-      "Bash(cmd.exe:*)",
-      "Bash(del \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\src\\ui\\stb_impl.cpp\")",
-      "Bash(\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" fing-eternauta.sln /p:Configuration=Debug /p:Platform=x64 /v:m /nologo)",
-      "Bash(\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" c:UsersemiliDesktopproyectosfing-eternauta-from-scratchfing-eternauta.sln /p:Configuration=Debug /p:Platform=x64 /v:m /nologo)",
-      "Bash(cd:*)",
-      "Bash(\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\fing-eternauta.sln\" /p:Configuration=Debug /p:Platform=x64 /v:m /nologo)",
-      "Bash(\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" fing-eternauta.sln -p:Configuration=Debug -p:Platform=x64 -verbosity:minimal)",
-      "Bash(del \"c:\\Users\\emili\\Desktop\\proyectos\\fing-eternauta-from-scratch\\shaders\\fxaa.frag\")",
-      "Bash(cmd /c:*)"
-    ],
-    "deny": [],
-    "ask": []
+      "Bash(cmake --build:*)",
+      "Bash(MSBuild.exe:*)"
+    ]
   }
 }
